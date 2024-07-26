@@ -1,6 +1,5 @@
 import argparse
-import glob
-import os
+import contextlib
 import pathlib
 import shutil
 import subprocess
@@ -10,8 +9,10 @@ from typing import List
 
 
 def main(repo: str) -> None:
-    destdir = f"examples/{repo}"
-    shutil.rmtree(destdir, ignore_errors=True)
+    destdir = pathlib.Path("examples") / repo
+
+    with contextlib.suppress(FileNotFoundError):
+        shutil.rmtree(destdir)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         subprocess.run(
@@ -24,17 +25,14 @@ def main(repo: str) -> None:
                 tmpdir,
             ]
         )
-        for html_file in glob.glob(f"{tmpdir}/src/epub/text/*.xhtml"):
-            print(html_file)
-            html_text = pathlib.Path(html_file).read_text()
+        tmpdirpath = pathlib.Path(tmpdir)
+        for html_file in tmpdirpath.glob("src/epub/text/*.xhtml"):
+            html_text = html_file.read_text()
             plaintext = html_to_txt(html_text)
-            os.makedirs(destdir, exist_ok=True)
-            pathlib.Path(
-                destdir
-                + "/"
-                + os.path.splitext(os.path.basename(html_file))[0]
-                + ".txt"
-            ).write_text(plaintext)
+            destdir.mkdir(exist_ok=True)
+            outpath = destdir / (html_file.stem + ".txt")
+            outpath.write_text(plaintext)
+            print(f"wrote {outpath}")
 
 
 class TextExtractor(HTMLParser):
