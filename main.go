@@ -9,8 +9,9 @@ import (
 )
 
 type Concordance struct {
-	Keyword string
-	Matches []Match
+	Keyword  string
+	FileName string
+	Matches  []Match
 }
 
 type Match struct {
@@ -37,9 +38,11 @@ func (cf BruteForceConcordanceFinder) FindConcordance(text string, keyword strin
 	for _, pair := range indices {
 		start := pair[0]
 		end := pair[1]
+		leftStart := max(0, start-CONTEXT_LENGTH)
+		rightEnd := min(end+CONTEXT_LENGTH, len(text))
 		matches = append(matches, Match{
-			Left:  text[start-CONTEXT_LENGTH : start],
-			Right: text[end : end+CONTEXT_LENGTH],
+			Left:  text[leftStart:start],
+			Right: text[end:rightEnd],
 		})
 	}
 
@@ -62,24 +65,56 @@ func main() {
 		os.Exit(1)
 	}
 
+	// TODO: parse command-line args
 	keyword := os.Args[1]
 
-	data, err := os.ReadFile("examples/zitkala-sa_old-indian-legends/manstin-the-rabbit.txt")
+	concorder := BruteForceConcordanceFinder{}
+	_, err := measureConcordance(concorder, "examples/zitkala-sa_old-indian-legends/", keyword)
 	if err != nil {
 		panic(err)
 	}
 
-	text := string(data)
-
-	concorder := BruteForceConcordanceFinder{}
-	concordance := measureConcordance(concorder, text, keyword)
-	printConcordance(concordance)
+	// for _, concordance := range concordances {
+	// 	fmt.Printf("%s:\n", concordance.FileName)
+	// 	printConcordance(concordance)
+	// }
 }
 
-func measureConcordance(concorder ConcordanceFinder, text string, keyword string) Concordance {
+func measureConcordance(concorder ConcordanceFinder, directory string, keyword string) ([]Concordance, error) {
 	start := time.Now()
-	r := concorder.FindConcordance(text, keyword)
+
+	files, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+
+	r := []Concordance{}
+	numMatches := 0
+	numFiles := 0
+	numBytes := 0
+	for _, file := range files {
+		data, err := os.ReadFile(fmt.Sprintf("%s/%s", directory, file.Name()))
+		if err != nil {
+			return nil, err
+		}
+		numBytes += len(data)
+		numFiles += 1
+
+		c := concorder.FindConcordance(string(data), keyword)
+		if len(c.Matches) == 0 {
+			continue
+		}
+
+		c.FileName = file.Name()
+		numMatches += len(c.Matches)
+		r = append(r, c)
+	}
+
 	duration := time.Since(start)
-	fmt.Printf("perf: found %d result(s) in %.3f millis\n", len(r.Matches), float64(duration.Microseconds())/1000.0)
-	return r
+	fmt.Println("perf:")
+	fmt.Printf("  results: %d\n", numMatches)
+	fmt.Printf("  bytes:   %d\n", numBytes)
+	fmt.Printf("  files:   %d\n", numFiles)
+	fmt.Printf("  time:    %.3f ms\n", float64(duration.Microseconds())/1000.0)
+	return r, nil
 }
