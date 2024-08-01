@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type Concordance struct {
@@ -17,9 +18,13 @@ type Match struct {
 	Right string
 }
 
-const CONTEXT_LENGTH = 30
+type ConcordanceFinder interface {
+	FindConcordance(text string, keyword string) Concordance
+}
 
-func findConcordance(text string, keyword string) Concordance {
+type BruteForceConcordanceFinder struct{}
+
+func (cf BruteForceConcordanceFinder) FindConcordance(text string, keyword string) Concordance {
 	text = strings.ReplaceAll(text, "\r\n", " ")
 
 	// TODO: match word boundaries only
@@ -43,6 +48,8 @@ func findConcordance(text string, keyword string) Concordance {
 	}
 }
 
+const CONTEXT_LENGTH = 30
+
 func printConcordance(concordance Concordance) {
 	for _, match := range concordance.Matches {
 		fmt.Printf("%s%s%s\n", match.Left, concordance.Keyword, match.Right)
@@ -57,13 +64,22 @@ func main() {
 
 	keyword := os.Args[1]
 
-	data, err := os.ReadFile("examples/pride-and-prejudice.txt")
+	data, err := os.ReadFile("examples/zitkala-sa_old-indian-legends/manstin-the-rabbit.txt")
 	if err != nil {
 		panic(err)
 	}
 
 	text := string(data)
 
-	concordance := findConcordance(text, keyword)
+	concorder := BruteForceConcordanceFinder{}
+	concordance := measureConcordance(concorder, text, keyword)
 	printConcordance(concordance)
+}
+
+func measureConcordance(concorder ConcordanceFinder, text string, keyword string) Concordance {
+	start := time.Now()
+	r := concorder.FindConcordance(text, keyword)
+	duration := time.Since(start)
+	fmt.Printf("perf: found %d result(s) in %.3f millis\n", len(r.Matches), float64(duration.Microseconds())/1000.0)
+	return r
 }
