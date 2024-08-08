@@ -69,36 +69,48 @@ func main() {
 	keyword := os.Args[1]
 
 	concorder := BruteForceConcordanceFinder{}
-	_, err := measureConcordance(concorder, "examples/zitkala-sa_old-indian-legends/", keyword)
+	// _, err := measureConcordance(concorder, "examples/dostoyevsky/", keyword)
+	concordances, err := measureConcordance(concorder, "examples/dostoyevsky/", keyword)
 	if err != nil {
 		panic(err)
 	}
 
-	// for _, concordance := range concordances {
-	// 	fmt.Printf("%s:\n", concordance.FileName)
-	// 	printConcordance(concordance)
-	// }
+	for _, concordance := range concordances {
+		fmt.Printf("%s:\n", concordance.FileName)
+		printConcordance(concordance)
+	}
 }
 
-func measureConcordance(concorder ConcordanceFinder, directory string, keyword string) ([]Concordance, error) {
-	start := time.Now()
+type DirectorySearcher struct {
+	NumMatches int
+	NumFiles   int
+	NumBytes   int
+}
 
+func (ds *DirectorySearcher) searchDirectory(concorder ConcordanceFinder, directory string, keyword string) ([]Concordance, error) {
 	files, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, err
 	}
 
 	r := []Concordance{}
-	numMatches := 0
-	numFiles := 0
-	numBytes := 0
 	for _, file := range files {
-		data, err := os.ReadFile(fmt.Sprintf("%s/%s", directory, file.Name()))
+		fullPath := fmt.Sprintf("%s/%s", directory, file.Name())
+		if file.IsDir() {
+			r2, err := ds.searchDirectory(concorder, fullPath, keyword)
+			if err != nil {
+				return nil, err
+			}
+			r = append(r, r2...)
+			continue
+		}
+
+		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			return nil, err
 		}
-		numBytes += len(data)
-		numFiles += 1
+		ds.NumBytes += len(data)
+		ds.NumFiles += 1
 
 		c := concorder.FindConcordance(string(data), keyword)
 		if len(c.Matches) == 0 {
@@ -106,15 +118,27 @@ func measureConcordance(concorder ConcordanceFinder, directory string, keyword s
 		}
 
 		c.FileName = file.Name()
-		numMatches += len(c.Matches)
+		ds.NumMatches += len(c.Matches)
 		r = append(r, c)
+	}
+
+	return r, nil
+}
+
+func measureConcordance(concorder ConcordanceFinder, directory string, keyword string) ([]Concordance, error) {
+	start := time.Now()
+
+	searcher := DirectorySearcher{}
+	r, err := searcher.searchDirectory(concorder, directory, keyword)
+	if err != nil {
+		return nil, err
 	}
 
 	duration := time.Since(start)
 	fmt.Println("perf:")
-	fmt.Printf("  results: %d\n", numMatches)
-	fmt.Printf("  bytes:   %d\n", numBytes)
-	fmt.Printf("  files:   %d\n", numFiles)
+	fmt.Printf("  results: %d\n", searcher.NumMatches)
+	fmt.Printf("  bytes:   %d\n", searcher.NumBytes)
+	fmt.Printf("  files:   %d\n", searcher.NumFiles)
 	fmt.Printf("  time:    %.3f ms\n", float64(duration.Microseconds())/1000.0)
 	return r, nil
 }
