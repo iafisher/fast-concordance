@@ -120,8 +120,34 @@ func handleConcord(writer http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func handleIndex(writer http.ResponseWriter, req *http.Request) {
+	httpWriteFile(writer, "public/fast.html", "text/html")
+}
+
+func handleJs(writer http.ResponseWriter, req *http.Request) {
+	httpWriteFile(writer, "public/fast.js", "application/javascript")
+}
+
+func handleCss(writer http.ResponseWriter, req *http.Request) {
+	httpWriteFile(writer, "public/fast.css", "text/css")
+}
+
+func httpWriteFile(writer http.ResponseWriter, path string, mimeType string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	writer.Header().Set("Content-Type", mimeType)
+	writer.Write(data)
+}
+
 func webServer() {
 	http.HandleFunc("/concord", handleConcord)
+	http.HandleFunc("/", handleIndex)
+	http.HandleFunc("/fast.js", handleJs)
+	http.HandleFunc("/fast.css", handleCss)
 	addr := ":8722"
 	log.Printf("listening on %s", addr)
 	log.Fatal("server failed", http.ListenAndServe(addr, nil))
