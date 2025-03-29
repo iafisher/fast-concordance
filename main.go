@@ -70,15 +70,16 @@ func main() {
 
 	concorder := BruteForceConcordanceFinder{}
 	// _, err := measureConcordance(concorder, "examples/dostoyevsky/", keyword)
-	concordances, err := measureConcordance(concorder, "examples/dostoyevsky/", keyword)
+	concordances, err := measureConcordance(concorder, "downloads/", keyword)
 	if err != nil {
 		panic(err)
 	}
 
-	for _, concordance := range concordances {
-		fmt.Printf("%s:\n", concordance.FileName)
-		printConcordance(concordance)
-	}
+	fmt.Printf("%d\n", len(concordances))
+	// for _, concordance := range concordances {
+	// 	fmt.Printf("%s:\n", concordance.FileName)
+	// 	printConcordance(concordance)
+	// }
 }
 
 type DirectorySearcher struct {

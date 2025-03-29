@@ -2,3 +2,6 @@
 /fast-concordance
 /payload_dump
 /examples
+/downloads
+
+.DS_Store
