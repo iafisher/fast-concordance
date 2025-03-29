@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -68,20 +71,60 @@ func main() {
 
 	// TODO: parse command-line args
 	keyword := os.Args[1]
+	if keyword == "-serve" {
+		webServer()
+	} else {
+		searcher := ParallelDirectorySearcher{}
+		concorder := BruteForceConcordanceFinder{}
+		// _, err := measureConcordance(concorder, "examples/dostoyevsky/", keyword)
+		concordances, err := measureConcordance(&searcher, concorder, "downloads/", keyword)
+		if err != nil {
+			panic(err)
+		}
 
+		fmt.Printf("files: %d\n", len(concordances))
+		// for _, concordance := range concordances {
+		// 	fmt.Printf("%s:\n", concordance.FileName)
+		// 	printConcordance(concordance)
+		// }
+	}
+}
+
+func handleConcord(writer http.ResponseWriter, req *http.Request) {
+	query := req.URL.Query()
+	keyword := query.Get("w")
 	searcher := ParallelDirectorySearcher{}
 	concorder := BruteForceConcordanceFinder{}
-	// _, err := measureConcordance(concorder, "examples/dostoyevsky/", keyword)
-	concordances, err := measureConcordance(&searcher, concorder, "downloads/", keyword)
-	if err != nil {
-		panic(err)
-	}
 
-	fmt.Printf("files: %d\n", len(concordances))
-	// for _, concordance := range concordances {
-	// 	fmt.Printf("%s:\n", concordance.FileName)
-	// 	printConcordance(concordance)
-	// }
+	// TODO: can't hard-code directory
+	start := time.Now()
+	concordances, err := searcher.SearchDirectory(concorder, "downloads", keyword)
+	duration := time.Since(start)
+	if err != nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		log.Printf("error finding concordance")
+		return
+	} else {
+		log.Printf("request took %.3f ms", float64(duration.Microseconds())/1000.0)
+		start = time.Now()
+		jsonBytes, err := json.Marshal(concordances)
+		duration = time.Since(start)
+		log.Printf("json took %.3f ms", float64(duration.Microseconds())/1000.0)
+		if err != nil {
+			writer.WriteHeader(http.StatusInternalServerError)
+			log.Printf("error marshaling JSON")
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Write(jsonBytes)
+	}
+}
+
+func webServer() {
+	http.HandleFunc("/concord", handleConcord)
+	addr := ":8722"
+	log.Printf("listening on %s", addr)
+	log.Fatal("server failed", http.ListenAndServe(addr, nil))
 }
 
 type DirectorySearcher interface {
