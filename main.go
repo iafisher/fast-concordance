@@ -10,6 +10,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+
+	"golang.org/x/text/runes"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 )
 
 type Concordance struct {
@@ -120,6 +125,67 @@ func handleConcord(writer http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func streamSearch(directory string, keyword string) chan ParallelResult {
+	files, err := os.ReadDir(directory)
+	if err != nil {
+		return nil
+	}
+
+	var wg sync.WaitGroup
+	var concorder BruteForceConcordanceFinder
+	resultsChannel := make(chan ParallelResult, 100)
+	for _, file := range files {
+		if file.IsDir() {
+			txtPath := fmt.Sprintf("%s/%s/merged.txt", directory, file.Name())
+
+			wg.Add(1)
+			go func(path string) {
+				defer wg.Done()
+				parallelDoOne(concorder, path, keyword, resultsChannel)
+			}(txtPath)
+		}
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultsChannel)
+	}()
+
+	return resultsChannel
+}
+
+func normalize(s string) string {
+	t := transform.Chain(norm.NFD, runes.Remove(runes.Predicate(isNonAscii)), norm.NFC)
+	result, _, _ := transform.String(t, s)
+	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(result, "\n", ""), "\r", ""), "\t", "")
+}
+
+func isNonAscii(r rune) bool {
+	return r > unicode.MaxASCII
+}
+
+func handleConcord2(writer http.ResponseWriter, req *http.Request) {
+	query := req.URL.Query()
+	keyword := query.Get("w")
+
+	// TODO: can't hard-code directory
+	ch := streamSearch("downloads", keyword)
+	if ch == nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	writer.Header().Set("Content-Type", "application/x-ndjson")
+	flusher := writer.(http.Flusher)
+	for result := range ch {
+		for _, match := range result.Concordance.Matches {
+			s := fmt.Sprintf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", result.Concordance.FileName, normalize(match.Left), normalize(match.Right))
+			writer.Write([]byte(s))
+			flusher.Flush()
+		}
+	}
+}
+
 func handleIndex(writer http.ResponseWriter, req *http.Request) {
 	httpWriteFile(writer, "public/fast.html", "text/html")
 }
@@ -144,7 +210,7 @@ func httpWriteFile(writer http.ResponseWriter, path string, mimeType string) {
 }
 
 func webServer() {
-	http.HandleFunc("/concord", handleConcord)
+	http.HandleFunc("/concord", handleConcord2)
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/fast.js", handleJs)
 	http.HandleFunc("/fast.css", handleCss)
@@ -204,6 +270,10 @@ func (ds *ParallelDirectorySearcher) SearchDirectory(concorder ConcordanceFinder
 
 	r := []Concordance{}
 	for result := range resultsChannel {
+		if result.NumBytes == 0 {
+			continue
+		}
+
 		ds.stats.NumBytes += result.NumBytes
 		ds.stats.NumFiles += 1
 		ds.stats.NumMatches += len(result.Concordance.Matches)
