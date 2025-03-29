@@ -75,7 +75,7 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("%d\n", len(concordances))
+	fmt.Printf("files: %d\n", len(concordances))
 	// for _, concordance := range concordances {
 	// 	fmt.Printf("%s:\n", concordance.FileName)
 	// 	printConcordance(concordance)
@@ -103,6 +103,8 @@ func (ds *DirectorySearcher) searchDirectory(concorder ConcordanceFinder, direct
 				return nil, err
 			}
 			r = append(r, r2...)
+			continue
+		} else if file.Name() == "merged.txt" || !strings.HasSuffix(file.Name(), ".txt") {
 			continue
 		}
 
