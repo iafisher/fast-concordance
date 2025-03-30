@@ -16,6 +16,13 @@ input {
     padding: 5px;
 }
 
+.stats {
+    margin-top: 1em;
+    text-align: center;
+    font-size: 0.8em;
+    font-family: monospace;
+}
+
 .results {
     margin-top: 1em;
     display: flex;
