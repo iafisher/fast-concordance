@@ -6,6 +6,9 @@ elementButton.addEventListener("click", () => {
     const keyword = elementInput.value.trim();
     elementInput.value = "";
     elementResults.innerHTML = "";
+
+    const startTime = performance.now();
+    let firstResultTime = null;
     // TODO: safe URL construction
     fetch(`http://localhost:8722/concord?w=${keyword}`)
     .then(res => {
@@ -15,6 +18,7 @@ elementButton.addEventListener("click", () => {
         function read() {
             reader.read().then(({ done, value }) => {
                 if (done) {
+                    console.log("time to last result: %f ms", (performance.now() - startTime).toFixed(1));
                     return;
                 }
                 buffer += decoder.decode(value, { stream: true });
@@ -33,6 +37,11 @@ elementButton.addEventListener("click", () => {
                         const p = document.createElement("p");
                         p.textContent = `${data.left} ${keyword} ${data.right}`;
                         elementResults.append(p);
+
+                        if (firstResultTime === null) {
+                            firstResultTime = performance.now();
+                            console.log("time to first result: %f ms", (firstResultTime - startTime).toFixed(1))
+                        }
                     }
                 });
                 read();
