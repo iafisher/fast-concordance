@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -18,6 +17,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// TODO: truncate at 50,000 results
+
 type Concordance struct {
 	Keyword  string
 	FileName string
@@ -25,17 +26,14 @@ type Concordance struct {
 }
 
 type Match struct {
-	Left  string
-	Right string
+	FileName string
+	Left     string
+	Right    string
 }
 
-type ConcordanceFinder interface {
-	FindConcordance(text string, keyword string) Concordance
-}
+const CONTEXT_LENGTH = 30
 
-type BruteForceConcordanceFinder struct{}
-
-func (cf BruteForceConcordanceFinder) FindConcordance(text string, keyword string) Concordance {
+func findConcordance(text string, keyword string) Concordance {
 	text = strings.ReplaceAll(text, "\r\n", " ")
 
 	// TODO: match word boundaries only
@@ -61,46 +59,12 @@ func (cf BruteForceConcordanceFinder) FindConcordance(text string, keyword strin
 	}
 }
 
-const CONTEXT_LENGTH = 30
-
-func printConcordance(concordance Concordance) {
-	for _, match := range concordance.Matches {
-		fmt.Printf("%s%s%s\n", match.Left, concordance.Keyword, match.Right)
-	}
-}
-
-func bail(msg string) {
-	fmt.Fprintln(os.Stderr, msg)
-	os.Exit(1)
-}
-
 func main() {
-	serve := flag.String("serve", "", "serve this directory of ebook files")
+	directory := flag.String("directory", "", "serve this directory of ebook files")
 	slow := flag.Bool("slow", false, "run the webserver in slow mode")
-	keyword := flag.String("keyword", "", "search for a keyword")
 	flag.Parse()
 
-	if *serve != "" {
-		if *keyword != "" {
-			bail("-serve and -keyword are incompatible.")
-		}
-
-		webServer(*serve, *slow)
-	} else {
-		searcher := MemorySearcher{}
-		concorder := BruteForceConcordanceFinder{}
-		// _, err := measureConcordance(concorder, "examples/dostoyevsky/", keyword)
-		concordances, err := measureConcordance(&searcher, concorder, "downloads/", *keyword)
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Printf("files: %d\n", len(concordances))
-		// for _, concordance := range concordances {
-		// 	fmt.Printf("%s:\n", concordance.FileName)
-		// 	printConcordance(concordance)
-		// }
-	}
+	webServer(*directory, *slow)
 }
 
 type Pages struct {
@@ -128,48 +92,17 @@ func (p *Pages) Load(directory string) error {
 	return nil
 }
 
-func handleConcord(writer http.ResponseWriter, req *http.Request) {
-	query := req.URL.Query()
-	keyword := query.Get("w")
-	searcher := ParallelDirectorySearcher{}
-	concorder := BruteForceConcordanceFinder{}
-
-	// TODO: can't hard-code directory
-	start := time.Now()
-	concordances, err := searcher.SearchDirectory(concorder, "downloads", keyword)
-	duration := time.Since(start)
-	if err != nil {
-		writer.WriteHeader(http.StatusInternalServerError)
-		log.Printf("error finding concordance")
-		return
-	} else {
-		log.Printf("request took %.3f ms", float64(duration.Microseconds())/1000.0)
-		start = time.Now()
-		jsonBytes, err := json.Marshal(concordances)
-		duration = time.Since(start)
-		log.Printf("json took %.3f ms", float64(duration.Microseconds())/1000.0)
-		if err != nil {
-			writer.WriteHeader(http.StatusInternalServerError)
-			log.Printf("error marshaling JSON")
-			return
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		writer.Write(jsonBytes)
-	}
-}
-
-func streamSearch(pages Pages, keyword string) chan ParallelResult {
+func streamSearch(pages Pages, keyword string) chan SearchResult {
 	var wg sync.WaitGroup
-	var concorder BruteForceConcordanceFinder
-	resultsChannel := make(chan ParallelResult, 100)
+	resultsChannel := make(chan SearchResult, 100)
 	for _, page := range pages.Pages {
 
 		wg.Add(1)
 		go func(page string) {
 			defer wg.Done()
-			concordance := concorder.FindConcordance(page, keyword)
+			concordance := findConcordance(page, keyword)
 
-			resultsChannel <- ParallelResult{
+			resultsChannel <- SearchResult{
 				NumBytes:    len(page),
 				Concordance: concordance,
 			}
@@ -185,6 +118,7 @@ func streamSearch(pages Pages, keyword string) chan ParallelResult {
 }
 
 func normalize(s string) string {
+	// TODO: do Unicode normalization at scrape time
 	t := transform.Chain(norm.NFD, runes.Remove(runes.Predicate(isNonAscii)), norm.NFC)
 	result, _, _ := transform.String(t, s)
 	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(result, "\n", ""), "\r", ""), "\t", "")
@@ -194,11 +128,11 @@ func isNonAscii(r rune) bool {
 	return r > unicode.MaxASCII
 }
 
-func handleConcord2(slow bool, pages Pages, writer http.ResponseWriter, req *http.Request) {
+func handleConcord(slow bool, pages Pages, writer http.ResponseWriter, req *http.Request) {
+	startTime := time.Now()
 	query := req.URL.Query()
 	keyword := query.Get("w")
 
-	// TODO: can't hard-code directory
 	ch := streamSearch(pages, keyword)
 	if ch == nil {
 		writer.WriteHeader(http.StatusInternalServerError)
@@ -207,8 +141,10 @@ func handleConcord2(slow bool, pages Pages, writer http.ResponseWriter, req *htt
 
 	writer.Header().Set("Content-Type", "application/x-ndjson")
 	flusher := writer.(http.Flusher)
+	resultCount := 0
 	for result := range ch {
 		for _, match := range result.Concordance.Matches {
+			resultCount += 1
 			s := fmt.Sprintf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", result.Concordance.FileName, normalize(match.Left), normalize(match.Right))
 			writer.Write([]byte(s))
 			flusher.Flush()
@@ -217,6 +153,8 @@ func handleConcord2(slow bool, pages Pages, writer http.ResponseWriter, req *htt
 			}
 		}
 	}
+
+	log.Printf("%d result(s) for %v in %d ms", resultCount, keyword, time.Since(startTime).Milliseconds())
 }
 
 func handleIndex(writer http.ResponseWriter, req *http.Request) {
@@ -250,20 +188,16 @@ func webServer(directory string, slow bool) {
 	}
 
 	http.HandleFunc("/concord", func(writer http.ResponseWriter, req *http.Request) {
-		handleConcord2(slow, pages, writer, req)
+		handleConcord(slow, pages, writer, req)
 	})
 	http.HandleFunc("/", handleIndex)
-	http.HandleFunc("/fast.js", handleJs)
-	http.HandleFunc("/fast.css", handleCss)
+	// TODO: only serve static assets in dev
+	http.HandleFunc("/static/fast.js", handleJs)
+	http.HandleFunc("/static/fast.css", handleCss)
+	// TODO: don't hard-code port
 	addr := ":8722"
 	log.Printf("listening on %s", addr)
 	log.Fatal("server failed", http.ListenAndServe(addr, nil))
-}
-
-type DirectorySearcher interface {
-	PreLoad(directory string) error
-	SearchDirectory(concorder ConcordanceFinder, directory string, keyword string) ([]Concordance, error)
-	Stats() SearcherStats
 }
 
 type SearcherStats struct {
@@ -272,200 +206,7 @@ type SearcherStats struct {
 	NumBytes   int
 }
 
-type ParallelDirectorySearcher struct {
-	stats SearcherStats
-}
-
-func (ds ParallelDirectorySearcher) PreLoad(directory string) error { return nil }
-
-func (ds ParallelDirectorySearcher) Stats() SearcherStats {
-	return ds.stats
-}
-
-type ParallelResult struct {
+type SearchResult struct {
 	NumBytes    int
 	Concordance Concordance
-}
-
-func (ds *ParallelDirectorySearcher) SearchDirectory(concorder ConcordanceFinder, directory string, keyword string) ([]Concordance, error) {
-	files, err := os.ReadDir(directory)
-	if err != nil {
-		return nil, err
-	}
-
-	var wg sync.WaitGroup
-	resultsChannel := make(chan ParallelResult, 100)
-	for _, file := range files {
-		if file.IsDir() {
-			txtPath := fmt.Sprintf("%s/%s/merged.txt", directory, file.Name())
-
-			wg.Add(1)
-			go func(path string) {
-				defer wg.Done()
-				parallelDoOne(concorder, path, keyword, resultsChannel)
-			}(txtPath)
-		}
-	}
-
-	go func() {
-		wg.Wait()
-		close(resultsChannel)
-	}()
-
-	r := []Concordance{}
-	for result := range resultsChannel {
-		if result.NumBytes == 0 {
-			continue
-		}
-
-		ds.stats.NumBytes += result.NumBytes
-		ds.stats.NumFiles += 1
-		ds.stats.NumMatches += len(result.Concordance.Matches)
-		r = append(r, result.Concordance)
-	}
-	return r, nil
-}
-
-func parallelDoOne(concorder ConcordanceFinder, path string, keyword string, resultsChannel chan ParallelResult) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-
-	concordance := concorder.FindConcordance(string(data), keyword)
-
-	resultsChannel <- ParallelResult{
-		NumBytes:    len(data),
-		Concordance: concordance,
-	}
-}
-
-type SequentialDirectorySearcher struct {
-	stats SearcherStats
-}
-
-func (ds SequentialDirectorySearcher) PreLoad(directory string) error { return nil }
-
-func (ds SequentialDirectorySearcher) Stats() SearcherStats {
-	return ds.stats
-}
-
-func (ds *SequentialDirectorySearcher) SearchDirectory(concorder ConcordanceFinder, directory string, keyword string) ([]Concordance, error) {
-	files, err := os.ReadDir(directory)
-	if err != nil {
-		return nil, err
-	}
-
-	r := []Concordance{}
-	for _, file := range files {
-		txtPath := fmt.Sprintf("%s/%s/merged.txt", directory, file.Name())
-		if file.IsDir() {
-			data, err := os.ReadFile(txtPath)
-			if err != nil {
-				continue
-			}
-
-			ds.stats.NumBytes += len(data)
-			ds.stats.NumFiles += 1
-
-			c := concorder.FindConcordance(string(data), keyword)
-			if len(c.Matches) == 0 {
-				continue
-			}
-
-			c.FileName = file.Name()
-			ds.stats.NumMatches += len(c.Matches)
-			r = append(r, c)
-		}
-	}
-
-	return r, nil
-}
-
-type MemorySearcher struct {
-	pages []string
-	stats SearcherStats
-}
-
-func (ds MemorySearcher) Stats() SearcherStats {
-	return ds.stats
-}
-
-func (ds *MemorySearcher) PreLoad(directory string) error {
-	files, err := os.ReadDir(directory)
-	if err != nil {
-		return err
-	}
-
-	for _, file := range files {
-		txtPath := fmt.Sprintf("%s/%s/merged.txt", directory, file.Name())
-		if file.IsDir() {
-			data, err := os.ReadFile(txtPath)
-			if err != nil {
-				continue
-			}
-
-			ds.pages = append(ds.pages, string(data))
-		}
-	}
-
-	return nil
-}
-
-func (ds *MemorySearcher) SearchDirectory(concorder ConcordanceFinder, directory string, keyword string) ([]Concordance, error) {
-	var wg sync.WaitGroup
-	resultsChannel := make(chan ParallelResult, 100)
-	for _, page := range ds.pages {
-		wg.Add(1)
-		go func(page string) {
-			defer wg.Done()
-			concordance := concorder.FindConcordance(page, keyword)
-
-			resultsChannel <- ParallelResult{
-				NumBytes:    len(page),
-				Concordance: concordance,
-			}
-		}(page)
-	}
-
-	go func() {
-		wg.Wait()
-		close(resultsChannel)
-	}()
-
-	r := []Concordance{}
-	for result := range resultsChannel {
-		if result.NumBytes == 0 {
-			continue
-		}
-
-		ds.stats.NumBytes += result.NumBytes
-		ds.stats.NumFiles += 1
-		ds.stats.NumMatches += len(result.Concordance.Matches)
-		r = append(r, result.Concordance)
-	}
-	return r, nil
-}
-
-func measureConcordance(searcher DirectorySearcher, concorder ConcordanceFinder, directory string, keyword string) ([]Concordance, error) {
-	err := searcher.PreLoad(directory)
-	if err != nil {
-		return nil, err
-	}
-
-	start := time.Now()
-
-	r, err := searcher.SearchDirectory(concorder, directory, keyword)
-	if err != nil {
-		return nil, err
-	}
-
-	duration := time.Since(start)
-	stats := searcher.Stats()
-	fmt.Println("perf:")
-	fmt.Printf("  results: %d\n", stats.NumMatches)
-	fmt.Printf("  bytes:   %d\n", stats.NumBytes)
-	fmt.Printf("  files:   %d\n", stats.NumFiles)
-	fmt.Printf("  time:    %.3f ms\n", float64(duration.Microseconds())/1000.0)
-	return r, nil
 }
