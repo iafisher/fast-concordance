@@ -1,53 +1,92 @@
-const elementButton = document.getElementById("search-btn");
-const elementInput = document.getElementById("search");
-const elementResults = document.getElementById("results");
+// const elementButton = document.getElementById("search-btn");
+// const elementInput = document.getElementById("search");
+// const elementResults = document.getElementById("results");
 
-elementButton.addEventListener("click", () => {
-    const keyword = elementInput.value.trim();
-    elementInput.value = "";
-    elementResults.innerHTML = "";
 
+async function search(keyword, resultsOut) {
     const startTime = performance.now();
     let firstResultTime = null;
     // TODO: safe URL construction
-    fetch(`http://localhost:8722/concord?w=${keyword}`)
-    .then(res => {
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        function read() {
-            reader.read().then(({ done, value }) => {
-                if (done) {
-                    console.log("time to last result: %f ms", (performance.now() - startTime).toFixed(1));
+    const httpResult = await fetch(`/concord?w=${keyword}`);
+    const reader = httpResult.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+            // TODO: does this drop the last result?
+            console.log("time to last result: %f ms", (performance.now() - startTime).toFixed(1));
+            break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed) {
+                let data;
+                try {
+                    data = JSON.parse(trimmed);
+                } catch (e) {
+                    console.error("error decoding JSON", e, trimmed);
                     return;
                 }
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop();
-                lines.forEach(line => {
-                    const trimmed = line.trim();
-                    if (trimmed) {
-                        let data;
-                        try {
-                            data = JSON.parse(trimmed);
-                        } catch (e) {
-                            console.error("error decoding JSON", e, trimmed);
-                            return;
-                        }
-                        const p = document.createElement("p");
-                        p.textContent = `${data.left} ${keyword} ${data.right}`;
-                        elementResults.append(p);
+                resultsOut.push(data);
+                m.redraw();
 
-                        if (firstResultTime === null) {
-                            firstResultTime = performance.now();
-                            console.log("time to first result: %f ms", (firstResultTime - startTime).toFixed(1))
-                        }
-                    }
-                });
-                read();
-            });
+                if (firstResultTime === null) {
+                    firstResultTime = performance.now();
+                    console.log("time to first result: %f ms", (firstResultTime - startTime).toFixed(1))
+                }
+            }
         }
+    }
+}
 
-        read();
-    });
-});
+class PageView {
+    constructor() {
+        this.keyword = "";
+        this.results = [];
+    }
+
+    view() {
+        return m("main", [
+            m(InputView, { onEnter: (keyword) => this.onEnter(keyword) }),
+            m(ResultsView, { keyword: this.keyword, results: this.results })]);
+    }
+
+    onEnter(keyword) {
+        this.keyword = keyword;
+        search(this.keyword, this.results);
+    }
+}
+
+class InputView {
+    constructor(vnode) {
+        this.value = "";
+        this.onEnter = vnode.attrs.onEnter;
+    }
+
+    view() {
+        return m("input", { onkeydown: (e) => this.onkeydown(e) });
+    }
+
+    onkeydown(e) {
+        if (e.keyCode === 13) {
+            const keyword = e.target.value;
+            e.target.value = "";
+            this.onEnter(keyword);
+        }
+    }
+}
+
+class ResultsView {
+    view(vnode) {
+        const results = vnode.attrs.results;
+        const keyword = vnode.attrs.keyword;
+        return m("div", results.map(result => m("p", `${result.left} ${keyword} ${result.right}`)));
+    }
+}
+
+m.mount(document.body, PageView);

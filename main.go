@@ -204,6 +204,7 @@ func handleConcord2(pages Pages, writer http.ResponseWriter, req *http.Request) 
 			s := fmt.Sprintf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", result.Concordance.FileName, normalize(match.Left), normalize(match.Right))
 			writer.Write([]byte(s))
 			flusher.Flush()
+			// time.Sleep(10 * time.Millisecond)
 		}
 	}
 }
