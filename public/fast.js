@@ -4,6 +4,7 @@ async function search(keyword, resultsOut, statsOut) {
     const startTime = performance.now();
     // TODO: safe URL construction
     const httpResult = await fetch(`/concord?w=${keyword}`);
+    // TODO: handle HTTP error
     const reader = httpResult.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";

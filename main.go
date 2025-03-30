@@ -19,12 +19,6 @@ import (
 
 // TODO: truncate at 50,000 results
 
-type Concordance struct {
-	Keyword  string
-	FileName string
-	Matches  []Match
-}
-
 type Match struct {
 	FileName string
 	Left     string
@@ -33,12 +27,14 @@ type Match struct {
 
 const CONTEXT_LENGTH = 30
 
-func findConcordance(text string, keyword string, quitChannel chan struct{}) Concordance {
-	text = strings.ReplaceAll(text, "\r\n", " ")
+func isLetter(b byte) bool {
+	return ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z')
+}
 
-	// TODO: match word boundaries only
-	// TODO: escape regex characters in `keyword` itself
-	rgx := regexp.MustCompile(keyword)
+// TODO: directly write matches to channel?
+func findConcordance(page Page, rgx *regexp.Regexp, quitChannel chan struct{}) []Match {
+	// TODO: do this at scraping
+	text := strings.ReplaceAll(page.Text, "\r\n", " ")
 
 	indices := rgx.FindAllStringSubmatchIndex(text, -1)
 
@@ -48,9 +44,20 @@ func findConcordance(text string, keyword string, quitChannel chan struct{}) Con
 		end := pair[1]
 		leftStart := max(0, start-CONTEXT_LENGTH)
 		rightEnd := min(end+CONTEXT_LENGTH, len(text))
+
+		// TODO: this doesn't work with Unicode
+		if start > 0 && isLetter(text[start-1]) {
+			continue
+		}
+
+		if end < len(text) && isLetter(text[end]) {
+			continue
+		}
+
 		matches = append(matches, Match{
-			Left:  text[leftStart:start],
-			Right: text[end:rightEnd],
+			FileName: page.FileName,
+			Left:     text[leftStart:start],
+			Right:    text[end:rightEnd],
 		})
 
 		select {
@@ -63,9 +70,7 @@ func findConcordance(text string, keyword string, quitChannel chan struct{}) Con
 		}
 	}
 
-	return Concordance{
-		Keyword: keyword, Matches: matches,
-	}
+	return matches
 }
 
 func main() {
@@ -87,12 +92,18 @@ type Pages struct {
 	Pages []string
 }
 
-func (p *Pages) Load(directory string) error {
+type Page struct {
+	FileName string
+	Text     string
+}
+
+func loadPages(directory string) ([]Page, error) {
 	files, err := os.ReadDir(directory)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	pages := []Page{}
 	for _, file := range files {
 		txtPath := fmt.Sprintf("%s/%s/merged.txt", directory, file.Name())
 		if file.IsDir() {
@@ -101,26 +112,33 @@ func (p *Pages) Load(directory string) error {
 				continue
 			}
 
-			p.Pages = append(p.Pages, string(data))
+			pages = append(pages, Page{FileName: file.Name(), Text: string(data)})
 		}
 	}
 
-	return nil
+	return pages, nil
 }
 
-func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) chan SearchResult {
+func streamSearch(pages []Page, keyword string, quitChannel chan struct{}) (chan SearchResult, error) {
 	var wg sync.WaitGroup
 	resultsChannel := make(chan SearchResult, 1000)
 
-	for _, page := range pages.Pages {
+	// The '\b' word boundary regex pattern is very slow. So we don't use it here and
+	// instead filter for word boundaries inside `findConcordance`.
+	rgx, err := regexp.Compile(regexp.QuoteMeta(keyword))
+	if err != nil {
+		return nil, err
+	}
+
+	for _, page := range pages {
 		wg.Add(1)
-		go func(page string) {
+		go func(page Page) {
 			defer wg.Done()
-			concordance := findConcordance(page, keyword, quitChannel)
+			matches := findConcordance(page, rgx, quitChannel)
 
 			resultsChannel <- SearchResult{
-				NumBytes:    len(page),
-				Concordance: concordance,
+				NumBytes: len(page.Text),
+				Matches:  matches,
 			}
 		}(page)
 	}
@@ -130,7 +148,7 @@ func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) chan S
 		close(resultsChannel)
 	}()
 
-	return resultsChannel
+	return resultsChannel, nil
 }
 
 func normalize(s string) string {
@@ -150,7 +168,7 @@ type ServerConfig struct {
 	TimeOutMillis int
 }
 
-func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter, req *http.Request) {
+func handleConcord(config ServerConfig, pages []Page, writer http.ResponseWriter, req *http.Request) {
 	startTime := time.Now()
 	query := req.URL.Query()
 	keyword := query.Get("w")
@@ -161,8 +179,8 @@ func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter,
 		close(quitChannel)
 	}()
 
-	ch := streamSearch(pages, keyword, quitChannel)
-	if ch == nil {
+	ch, err := streamSearch(pages, keyword, quitChannel)
+	if err != nil {
 		writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -172,9 +190,9 @@ func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter,
 	resultCount := 0
 	shouldQuit := false
 	for result := range ch {
-		for _, match := range result.Concordance.Matches {
+		for _, match := range result.Matches {
 			resultCount += 1
-			s := fmt.Sprintf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", result.Concordance.FileName, normalize(match.Left), normalize(match.Right))
+			s := fmt.Sprintf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", match.FileName, normalize(match.Left), normalize(match.Right))
 			writer.Write([]byte(s))
 			flusher.Flush()
 			if config.SlowMode {
@@ -229,9 +247,9 @@ func httpWriteFile(writer http.ResponseWriter, path string, mimeType string) {
 }
 
 func webServer(config ServerConfig) {
-	var pages Pages
-	err := pages.Load(config.Directory)
+	pages, err := loadPages(config.Directory)
 	if err != nil {
+		// TODO: don't panic
 		panic("could not load pages")
 	}
 
@@ -255,6 +273,6 @@ type SearcherStats struct {
 }
 
 type SearchResult struct {
-	NumBytes    int
-	Concordance Concordance
+	NumBytes int
+	Matches  []Match
 }
