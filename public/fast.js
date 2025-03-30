@@ -85,7 +85,12 @@ class ResultsView {
     view(vnode) {
         const results = vnode.attrs.results;
         const keyword = vnode.attrs.keyword;
-        return m("div", results.map(result => m("p", `${result.left} ${keyword} ${result.right}`)));
+        return m("div.results", 
+            [
+                m("div.side.left", results.map(result => m("div", result.left))),
+                m("div.center", results.map(_ => m("div", keyword))),
+                m("div.side.right", results.map(result => m("div", result.right))),
+            ]);
     }
 }
 

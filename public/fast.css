@@ -1,4 +1,37 @@
+body {
+    font-family: system-ui, sans-serif;
+}
+
 main {
     margin: 0 auto;
+    margin-top: 1em;
     max-width: 50rem;
+}
+
+input {
+    display: block;
+    margin: 0 auto;
+    line-height: 1.5;
+    width: 300px;
+    padding: 5px;
+}
+
+.results {
+    margin-top: 1em;
+    display: flex;
+    justify-content: center;
+}
+
+.results .center {
+    flex-shrink: 0;
+    padding: 0 10px;
+    font-weight: bold;
+}
+
+.results .center div, .results .side div {
+    margin-top: 0.5em;
+}
+
+.results .left {
+    text-align: right;
 }
