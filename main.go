@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -68,21 +69,28 @@ func printConcordance(concordance Concordance) {
 	}
 }
 
-func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: ./fast-concordance <keyword>")
-		os.Exit(1)
-	}
+func bail(msg string) {
+	fmt.Fprintln(os.Stderr, msg)
+	os.Exit(1)
+}
 
-	// TODO: parse command-line args
-	keyword := os.Args[1]
-	if keyword == "-serve" {
-		webServer()
+func main() {
+	serve := flag.String("serve", "", "serve this directory of ebook files")
+	slow := flag.Bool("slow", false, "run the webserver in slow mode")
+	keyword := flag.String("keyword", "", "search for a keyword")
+	flag.Parse()
+
+	if *serve != "" {
+		if *keyword != "" {
+			bail("-serve and -keyword are incompatible.")
+		}
+
+		webServer(*serve, *slow)
 	} else {
 		searcher := MemorySearcher{}
 		concorder := BruteForceConcordanceFinder{}
 		// _, err := measureConcordance(concorder, "examples/dostoyevsky/", keyword)
-		concordances, err := measureConcordance(&searcher, concorder, "downloads/", keyword)
+		concordances, err := measureConcordance(&searcher, concorder, "downloads/", *keyword)
 		if err != nil {
 			panic(err)
 		}
@@ -186,7 +194,7 @@ func isNonAscii(r rune) bool {
 	return r > unicode.MaxASCII
 }
 
-func handleConcord2(pages Pages, writer http.ResponseWriter, req *http.Request) {
+func handleConcord2(slow bool, pages Pages, writer http.ResponseWriter, req *http.Request) {
 	query := req.URL.Query()
 	keyword := query.Get("w")
 
@@ -204,7 +212,9 @@ func handleConcord2(pages Pages, writer http.ResponseWriter, req *http.Request) 
 			s := fmt.Sprintf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", result.Concordance.FileName, normalize(match.Left), normalize(match.Right))
 			writer.Write([]byte(s))
 			flusher.Flush()
-			// time.Sleep(10 * time.Millisecond)
+			if slow {
+				time.Sleep(10 * time.Millisecond)
+			}
 		}
 	}
 }
@@ -232,15 +242,15 @@ func httpWriteFile(writer http.ResponseWriter, path string, mimeType string) {
 	writer.Write(data)
 }
 
-func webServer() {
+func webServer(directory string, slow bool) {
 	var pages Pages
-	err := pages.Load("downloads")
+	err := pages.Load(directory)
 	if err != nil {
 		panic("could not load pages")
 	}
 
 	http.HandleFunc("/concord", func(writer http.ResponseWriter, req *http.Request) {
-		handleConcord2(pages, writer, req)
+		handleConcord2(slow, pages, writer, req)
 	})
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/fast.js", handleJs)
