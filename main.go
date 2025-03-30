@@ -33,7 +33,7 @@ type Match struct {
 
 const CONTEXT_LENGTH = 30
 
-func findConcordance(text string, keyword string) Concordance {
+func findConcordance(text string, keyword string, quitChannel chan struct{}) Concordance {
 	text = strings.ReplaceAll(text, "\r\n", " ")
 
 	// TODO: match word boundaries only
@@ -52,6 +52,15 @@ func findConcordance(text string, keyword string) Concordance {
 			Left:  text[leftStart:start],
 			Right: text[end:rightEnd],
 		})
+
+		select {
+		case _, ok := <-quitChannel:
+			if !ok {
+				break
+			}
+		default:
+			continue
+		}
 	}
 
 	return Concordance{
@@ -62,9 +71,16 @@ func findConcordance(text string, keyword string) Concordance {
 func main() {
 	directory := flag.String("directory", "", "serve this directory of ebook files")
 	slow := flag.Bool("slow", false, "run the webserver in slow mode")
+	timeOutMillis := flag.Int("timeout-ms", 1000, "time out requests after this many milliseconds")
 	flag.Parse()
 
-	webServer(*directory, *slow)
+	config := ServerConfig{
+		Directory:     *directory,
+		SlowMode:      *slow,
+		TimeOutMillis: *timeOutMillis,
+	}
+
+	webServer(config)
 }
 
 type Pages struct {
@@ -92,15 +108,15 @@ func (p *Pages) Load(directory string) error {
 	return nil
 }
 
-func streamSearch(pages Pages, keyword string) chan SearchResult {
+func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) chan SearchResult {
 	var wg sync.WaitGroup
-	resultsChannel := make(chan SearchResult, 100)
-	for _, page := range pages.Pages {
+	resultsChannel := make(chan SearchResult, 1000)
 
+	for _, page := range pages.Pages {
 		wg.Add(1)
 		go func(page string) {
 			defer wg.Done()
-			concordance := findConcordance(page, keyword)
+			concordance := findConcordance(page, keyword, quitChannel)
 
 			resultsChannel <- SearchResult{
 				NumBytes:    len(page),
@@ -128,12 +144,24 @@ func isNonAscii(r rune) bool {
 	return r > unicode.MaxASCII
 }
 
-func handleConcord(slow bool, pages Pages, writer http.ResponseWriter, req *http.Request) {
+type ServerConfig struct {
+	Directory     string
+	SlowMode      bool
+	TimeOutMillis int
+}
+
+func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter, req *http.Request) {
 	startTime := time.Now()
 	query := req.URL.Query()
 	keyword := query.Get("w")
 
-	ch := streamSearch(pages, keyword)
+	quitChannel := make(chan struct{})
+	go func() {
+		time.Sleep(time.Millisecond * time.Duration(config.TimeOutMillis))
+		close(quitChannel)
+	}()
+
+	ch := streamSearch(pages, keyword, quitChannel)
 	if ch == nil {
 		writer.WriteHeader(http.StatusInternalServerError)
 		return
@@ -142,19 +170,39 @@ func handleConcord(slow bool, pages Pages, writer http.ResponseWriter, req *http
 	writer.Header().Set("Content-Type", "application/x-ndjson")
 	flusher := writer.(http.Flusher)
 	resultCount := 0
+	shouldQuit := false
 	for result := range ch {
 		for _, match := range result.Concordance.Matches {
 			resultCount += 1
 			s := fmt.Sprintf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", result.Concordance.FileName, normalize(match.Left), normalize(match.Right))
 			writer.Write([]byte(s))
 			flusher.Flush()
-			if slow {
+			if config.SlowMode {
 				time.Sleep(10 * time.Millisecond)
 			}
+
+			select {
+			case _, ok := <-quitChannel:
+				if !ok {
+					shouldQuit = true
+					break
+				}
+			default:
+				continue
+			}
+		}
+
+		if shouldQuit {
+			break
 		}
 	}
 
-	log.Printf("%d result(s) for %v in %d ms", resultCount, keyword, time.Since(startTime).Milliseconds())
+	durationMs := time.Since(startTime).Milliseconds()
+	if shouldQuit {
+		log.Printf("%d result(s) for '%v' in %d ms (timed out)", resultCount, keyword, durationMs)
+	} else {
+		log.Printf("%d result(s) for '%v' in %d ms", resultCount, keyword, durationMs)
+	}
 }
 
 func handleIndex(writer http.ResponseWriter, req *http.Request) {
@@ -180,15 +228,15 @@ func httpWriteFile(writer http.ResponseWriter, path string, mimeType string) {
 	writer.Write(data)
 }
 
-func webServer(directory string, slow bool) {
+func webServer(config ServerConfig) {
 	var pages Pages
-	err := pages.Load(directory)
+	err := pages.Load(config.Directory)
 	if err != nil {
 		panic("could not load pages")
 	}
 
 	http.HandleFunc("/concord", func(writer http.ResponseWriter, req *http.Request) {
-		handleConcord(slow, pages, writer, req)
+		handleConcord(config, pages, writer, req)
 	})
 	http.HandleFunc("/", handleIndex)
 	// TODO: only serve static assets in dev

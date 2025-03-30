@@ -1,3 +1,5 @@
+// TODO: truncate at 10,000 results
+
 async function search(keyword, resultsOut, statsOut) {
     const startTime = performance.now();
     // TODO: safe URL construction
