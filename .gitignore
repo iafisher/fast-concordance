@@ -1,7 +1,10 @@
 /scratch.md
 /fast-concordance
+/fast-concordance-linux
 /payload_dump
 /examples
 /downloads
+/merged
 
 .DS_Store
+*.tar.gz

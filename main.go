@@ -75,14 +75,27 @@ func findConcordance(page Page, rgx *regexp.Regexp, quitChannel chan struct{}) [
 
 func main() {
 	directory := flag.String("directory", "", "serve this directory of ebook files")
+	query := flag.String("query", "", "run a query instead of the web server")
 	slow := flag.Bool("slow", false, "run the webserver in slow mode")
 	timeOutMillis := flag.Int("timeout-ms", 1000, "time out requests after this many milliseconds")
+	port := flag.Int("port", -1, "listen on this port")
 	flag.Parse()
+
+	if *query != "" {
+		runOneQuery(*query, *directory)
+		return
+	}
+
+	if *port == -1 {
+		fmt.Fprintln(os.Stderr, "-port is required")
+		os.Exit(1)
+	}
 
 	config := ServerConfig{
 		Directory:     *directory,
 		SlowMode:      *slow,
 		TimeOutMillis: *timeOutMillis,
+		Port:          *port,
 	}
 
 	webServer(config)
@@ -166,6 +179,7 @@ type ServerConfig struct {
 	Directory     string
 	SlowMode      bool
 	TimeOutMillis int
+	Port          int
 }
 
 func handleConcord(config ServerConfig, pages []Page, writer http.ResponseWriter, req *http.Request) {
@@ -246,6 +260,45 @@ func httpWriteFile(writer http.ResponseWriter, path string, mimeType string) {
 	writer.Write(data)
 }
 
+func runOneQuery(query string, directory string) {
+	pages, err := loadPages(directory)
+	if err != nil {
+		panic(err)
+	}
+
+	quitChannel := make(chan struct{})
+	go func() {
+		time.Sleep(time.Millisecond * time.Duration(1000))
+		close(quitChannel)
+	}()
+
+	ch, err := streamSearch(pages, query, quitChannel)
+	if err != nil {
+		panic(err)
+	}
+
+	shouldQuit := false
+	for result := range ch {
+		for _, match := range result.Matches {
+			fmt.Printf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", match.FileName, normalize(match.Left), normalize(match.Right))
+
+			select {
+			case _, ok := <-quitChannel:
+				if !ok {
+					shouldQuit = true
+					break
+				}
+			default:
+				continue
+			}
+		}
+
+		if shouldQuit {
+			break
+		}
+	}
+}
+
 func webServer(config ServerConfig) {
 	pages, err := loadPages(config.Directory)
 	if err != nil {
@@ -260,8 +313,7 @@ func webServer(config ServerConfig) {
 	// TODO: only serve static assets in dev
 	http.HandleFunc("/static/fast.js", handleJs)
 	http.HandleFunc("/static/fast.css", handleCss)
-	// TODO: don't hard-code port
-	addr := ":8722"
+	addr := fmt.Sprintf(":%d", config.Port)
 	log.Printf("listening on %s", addr)
 	log.Fatal("server failed", http.ListenAndServe(addr, nil))
 }
