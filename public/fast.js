@@ -87,7 +87,6 @@ class PageView {
         this.stats.millisToLastResult = null;
         this.error = null;
         search(this.keyword, this.results, this.stats).catch((e) => {
-            console.log(e);
             if (typeof e.error.message === "string") {
                 this.error = e.error.message;
             } else {
@@ -112,7 +111,7 @@ class InputView {
     }
 
     view() {
-        return m("input", { placeholder: "Type 4 letters or more...", onkeydown: (e) => this.onkeydown(e) });
+        return m("input", { placeholder: "Enter a keyword (try 'vampire')", onkeydown: (e) => this.onkeydown(e) });
     }
 
     onkeydown(e) {
@@ -194,7 +193,7 @@ class SourceView {
     }
 }
 
-m.mount(document.body, PageView);
+m.mount(document.getElementById("mithril"), PageView);
 getManifest().then(m => {
     window.ebooksManifest = m;
 });
