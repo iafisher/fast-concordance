@@ -50,9 +50,9 @@ input {
 }
 
 .results .result .left {
-    text-align: right;
     /* Truncate long text at left rather than right. */
-    direction: rtl;
+    display: flex;
+    flex-direction: row-reverse;
 }
 
 .results .result .center {

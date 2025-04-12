@@ -168,6 +168,7 @@ func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) (chan 
 
 	// The '\b' word boundary regex pattern is very slow. So we don't use it here and
 	// instead filter for word boundaries inside `findConcordance`.
+	// TODO: case-insensitive matching - (?i) flag (but it's slow)
 	rgx, err := regexp.Compile(regexp.QuoteMeta(keyword))
 	if err != nil {
 		return nil, err
