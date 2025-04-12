@@ -3,13 +3,12 @@ const DISPLAY_LIMIT = 10000;
 const GENERIC_ERROR_MESSAGE = "Sorry, there was an error.";
 
 async function getManifest() {
-    return {
-        "bram-stoker_dracula": {
-            author: "Bram Stoker",
-            title: "Dracula",
-            url: "https://standardebooks.org/ebooks/bram-stoker/dracula"
-        }
-    };
+    const httpResult = await fetch("/manifest");
+    if (httpResult.ok) {
+        return await httpResult.json();
+    } else {
+        throw new Error("failed to fetch manifest")
+    }
 }
 
 async function search(keyword, resultsOut, statsOut) {
@@ -185,6 +184,7 @@ class SourceView {
             const source = window.ebooksManifest[result.filename];
             if (source !== undefined) {
                 return m("div.source", [
+                    m.trust(" &ndash; "),
                     m("a", { href: source.url}, [m("cite", [source.title])]),
                     ` (${source.author})`
                 ]);
@@ -198,3 +198,4 @@ m.mount(document.body, PageView);
 getManifest().then(m => {
     window.ebooksManifest = m;
 });
+// TODO: handle error fetching manifest

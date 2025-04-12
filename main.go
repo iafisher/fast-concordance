@@ -1,43 +1,63 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
-	"unicode"
-
-	"golang.org/x/text/runes"
-	"golang.org/x/text/transform"
-	"golang.org/x/text/unicode/norm"
 )
 
-// TODO: truncate at 50,000 results
+// TODO: truncate at 10,000 results (same as frontend)
 
 type Match struct {
-	FileName string
-	Left     string
-	Right    string
+	FileName string `json:"filename"`
+	Left     string `json:"left"`
+	Right    string `json:"right"`
 }
 
 const MIN_KEYWORD_LENGTH = 4
 const MAX_KEYWORD_LENGTH = 30
-const CONTEXT_LENGTH = 30
+const CONTEXT_LENGTH = 40
 
 func isLetter(b byte) bool {
 	return ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z')
 }
 
+func isContinuationByte(b byte) bool {
+	return b&0xC0 == 0x80
+}
+
+func isSingleByteChar(b byte) bool {
+	return b&0x80 == 0
+}
+
+func SliceLeftUtf8(text string, index int, end int) string {
+	for end >= 0 && isContinuationByte(text[end]) {
+		end -= 1
+	}
+	return text[end:index]
+}
+
+func SliceRightUtf8(text string, index int, end int) string {
+	if end == len(text) || isSingleByteChar(text[end]) {
+		return text[index:end]
+	} else {
+		end += 1
+		for end < len(text) && isContinuationByte(text[end]) {
+			end += 1
+		}
+		return text[index:end]
+	}
+}
+
 // TODO: directly write matches to channel?
 func findConcordance(page Page, rgx *regexp.Regexp, quitChannel chan struct{}) []Match {
-	// TODO: do this at scraping
-	text := strings.ReplaceAll(page.Text, "\r\n", " ")
-
+	text := page.Text
 	indices := rgx.FindAllStringSubmatchIndex(text, -1)
 
 	matches := []Match{}
@@ -56,11 +76,13 @@ func findConcordance(page Page, rgx *regexp.Regexp, quitChannel chan struct{}) [
 			continue
 		}
 
-		matches = append(matches, Match{
+		match := Match{
 			FileName: page.FileName,
-			Left:     text[leftStart:start],
-			Right:    text[end:rightEnd],
-		})
+			Left:     SliceLeftUtf8(text, start, leftStart),
+			Right:    SliceRightUtf8(text, end, rightEnd),
+		}
+
+		matches = append(matches, match)
 
 		select {
 		case _, ok := <-quitChannel:
@@ -104,7 +126,8 @@ func main() {
 }
 
 type Pages struct {
-	Pages []string
+	Pages        []Page
+	ManifestJson []byte
 }
 
 type Page struct {
@@ -112,10 +135,10 @@ type Page struct {
 	Text     string
 }
 
-func loadPages(directory string) ([]Page, error) {
+func loadPages(directory string) (Pages, error) {
 	files, err := os.ReadDir(directory)
 	if err != nil {
-		return nil, err
+		return Pages{}, err
 	}
 
 	pages := []Page{}
@@ -131,10 +154,15 @@ func loadPages(directory string) ([]Page, error) {
 		}
 	}
 
-	return pages, nil
+	manifestJson, err := os.ReadFile(fmt.Sprintf("%s/manifest.json", directory))
+	if err != nil {
+		return Pages{}, err
+	}
+
+	return Pages{Pages: pages, ManifestJson: manifestJson}, nil
 }
 
-func streamSearch(pages []Page, keyword string, quitChannel chan struct{}) (chan SearchResult, error) {
+func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) (chan SearchResult, error) {
 	var wg sync.WaitGroup
 	resultsChannel := make(chan SearchResult, 1000)
 
@@ -145,7 +173,7 @@ func streamSearch(pages []Page, keyword string, quitChannel chan struct{}) (chan
 		return nil, err
 	}
 
-	for _, page := range pages {
+	for _, page := range pages.Pages {
 		wg.Add(1)
 		go func(page Page) {
 			defer wg.Done()
@@ -166,17 +194,6 @@ func streamSearch(pages []Page, keyword string, quitChannel chan struct{}) (chan
 	return resultsChannel, nil
 }
 
-func normalize(s string) string {
-	// TODO: do Unicode normalization at scrape time
-	t := transform.Chain(norm.NFD, runes.Remove(runes.Predicate(isNonAscii)), norm.NFC)
-	result, _, _ := transform.String(t, s)
-	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(result, "\n", ""), "\r", ""), "\t", "")
-}
-
-func isNonAscii(r rune) bool {
-	return r > unicode.MaxASCII
-}
-
 type ServerConfig struct {
 	Directory     string
 	SlowMode      bool
@@ -190,7 +207,7 @@ func writeError(writer http.ResponseWriter, message string) {
 	writer.Write([]byte(s))
 }
 
-func handleConcord(config ServerConfig, pages []Page, writer http.ResponseWriter, req *http.Request) {
+func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter, req *http.Request) {
 	startTime := time.Now()
 	query := req.URL.Query()
 	keyword := query.Get("w")
@@ -224,8 +241,13 @@ func handleConcord(config ServerConfig, pages []Page, writer http.ResponseWriter
 	for result := range ch {
 		for _, match := range result.Matches {
 			resultCount += 1
-			s := fmt.Sprintf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", match.FileName, normalize(match.Left), normalize(match.Right))
-			writer.Write([]byte(s))
+			jsonB, err := json.Marshal(match)
+			if err != nil {
+				continue
+			}
+
+			writer.Write(jsonB)
+			writer.Write([]byte("\n"))
 			flusher.Flush()
 			if config.SlowMode {
 				time.Sleep(10 * time.Millisecond)
@@ -267,6 +289,11 @@ func handleCss(writer http.ResponseWriter, req *http.Request) {
 	httpWriteFile(writer, "public/fast.css", "text/css")
 }
 
+func handleManifest(pages Pages, writer http.ResponseWriter, req *http.Request) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Write(pages.ManifestJson)
+}
+
 func httpWriteFile(writer http.ResponseWriter, path string, mimeType string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -298,7 +325,11 @@ func runOneQuery(query string, directory string) {
 	shouldQuit := false
 	for result := range ch {
 		for _, match := range result.Matches {
-			fmt.Printf("{\"filename\":\"%s\",\"left\":\"%s\",\"right\":\"%s\"}\n", match.FileName, normalize(match.Left), normalize(match.Right))
+			jsonB, err := json.Marshal(match)
+			if err != nil {
+				continue
+			}
+			fmt.Println(string(jsonB))
 
 			select {
 			case _, ok := <-quitChannel:
@@ -336,6 +367,9 @@ func webServer(config ServerConfig) {
 	// TODO: only serve static assets in dev
 	http.HandleFunc("/static/fast.js", handleJs)
 	http.HandleFunc("/static/fast.css", handleCss)
+	http.HandleFunc("/manifest", func(writer http.ResponseWriter, req *http.Request) {
+		handleManifest(pages, writer, req)
+	})
 	http.HandleFunc("/concordance/static/fast.js", handleJs)
 	http.HandleFunc("/concordance/static/fast.css", handleCss)
 

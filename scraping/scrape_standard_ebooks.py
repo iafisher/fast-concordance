@@ -278,7 +278,8 @@ class TextExtractor(HTMLParser):
         self.buffer.append(data)
 
     def finish(self) -> str:
-        return whitespace_pattern.sub(" ", " ".join(self.buffer))
+        r = whitespace_pattern.sub(" ", " ".join(self.buffer))
+        return r
 
 
 def html_to_txt(html_text: str) -> str:
