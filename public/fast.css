@@ -76,14 +76,20 @@ input {
     font-size: var(--font-size-sm);
 }
 
-.error {
+.error, .loading {
     margin: 0 auto;
     width: fit-content;
     margin-top: var(--margin-lg);
     padding: 10px;
     text-align: center;
+}
 
+.error {
     background-color: #fdecea;
     border: 1px solid #f5c6cb;
     color: #721c24;
+}
+
+.loading {
+    font-size: var(--font-size-sm)
 }

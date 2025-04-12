@@ -67,6 +67,7 @@ class PageView {
         this.stats = { millisToFirstResult: null, millisToLastResult: null };
         this.error = null;
         this.manifest = null;
+        this.loading = false;
 
         getManifest().then(manifest => { this.manifest = manifest });
     }
@@ -77,7 +78,9 @@ class PageView {
             m(StatsView, { stats: this.stats, resultsCount: this.results.length }),
             this.error !== null
                 ? m(ErrorView, { error: this.error })
-                : m(ResultsListView, { keyword: this.keyword, results: this.results, manifest: this.manifest })]);
+                : m(ResultsListView, { keyword: this.keyword, results: this.results, manifest: this.manifest }),
+            this.error === null && this.loading ? m(LoadingView) : null,
+        ]);
     }
 
     onEnter(keyword) {
@@ -86,7 +89,12 @@ class PageView {
         this.stats.millisToFirstResult = null;
         this.stats.millisToLastResult = null;
         this.error = null;
-        search(this.keyword, this.results, this.stats).catch((e) => {
+        this.loading = true;
+        search(this.keyword, this.results, this.stats).then(() => {
+            this.loading = false;
+            m.redraw();
+        }).catch((e) => {
+            this.loading = false;
             if (typeof e.error.message === "string") {
                 this.error = e.error.message;
             } else {
@@ -101,6 +109,12 @@ class ErrorView {
     view(vnode) {
         const error = vnode.attrs.error;
         return m("div.error", [error]);
+    }
+}
+
+class LoadingView {
+    view() {
+        return m("div.loading", "Loading more results...");
     }
 }
 
