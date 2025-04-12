@@ -278,6 +278,13 @@ func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter,
 }
 
 func handleIndex(writer http.ResponseWriter, req *http.Request) {
+	// We meant to only match a literal "/" path, but in Go "/" matches *every* path,
+	// so we have to handle 404 here.
+	if req.URL.Path != "/" {
+		writer.WriteHeader(http.StatusNotFound)
+		return
+	}
+
 	httpWriteFile(writer, "public/fast.html", "text/html")
 }
 
@@ -372,6 +379,9 @@ func webServer(config ServerConfig) {
 	})
 	http.HandleFunc("/concordance/static/fast.js", handleJs)
 	http.HandleFunc("/concordance/static/fast.css", handleCss)
+	http.HandleFunc("/concordance/manifest", func(writer http.ResponseWriter, req *http.Request) {
+		handleManifest(pages, writer, req)
+	})
 
 	// TODO: 404 page
 

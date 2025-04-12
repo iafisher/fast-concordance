@@ -3,7 +3,7 @@ const DISPLAY_LIMIT = 10000;
 const GENERIC_ERROR_MESSAGE = "Sorry, there was an error.";
 
 async function getManifest() {
-    const httpResult = await fetch("/manifest");
+    const httpResult = await fetch("/concordance/manifest");
     if (httpResult.ok) {
         return await httpResult.json();
     } else {
