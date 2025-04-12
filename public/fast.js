@@ -1,9 +1,15 @@
 const DISPLAY_LIMIT = 10000;
 
+const GENERIC_ERROR_MESSAGE = "Sorry, there was an error.";
+
 async function search(keyword, resultsOut, statsOut) {
     const startTime = performance.now();
     const httpResult = await fetch(`/concordance/concord?w=${encodeURIComponent(keyword)}`);
-    // TODO: handle HTTP error
+    if (!httpResult.ok) {
+        const data = await httpResult.json();
+        throw { error: data.error };
+    }
+
     // TODO: Can I close the connection when display limit is hit and cancel request on server?
     const reader = httpResult.body.getReader();
     const decoder = new TextDecoder();
@@ -50,13 +56,16 @@ class PageView {
         this.keyword = "";
         this.results = [];
         this.stats = { millisToFirstResult: null, millisToLastResult: null };
+        this.error = null;
     }
 
     view() {
         return m("main", [
             m(InputView, { onEnter: (keyword) => this.onEnter(keyword) }),
             m(StatsView, { stats: this.stats, resultsCount: this.results.length }),
-            m(ResultsListView, { keyword: this.keyword, results: this.results })]);
+            this.error !== null
+                ? m(ErrorView, { error: this.error })
+                : m(ResultsListView, { keyword: this.keyword, results: this.results })]);
     }
 
     onEnter(keyword) {
@@ -64,7 +73,23 @@ class PageView {
         this.results = [];
         this.stats.millisToFirstResult = null;
         this.stats.millisToLastResult = null;
-        search(this.keyword, this.results, this.stats);
+        this.error = null;
+        search(this.keyword, this.results, this.stats).catch((e) => {
+            console.log(e);
+            if (typeof e.error.message === "string") {
+                this.error = e.error.message;
+            } else {
+                this.error = GENERIC_ERROR_MESSAGE;
+            }
+            m.redraw();
+        });
+    }
+}
+
+class ErrorView {
+    view(vnode) {
+        const error = vnode.attrs.error;
+        return m("div.error", [error]);
     }
 }
 

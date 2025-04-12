@@ -63,3 +63,15 @@ input {
     text-align: center;
     font-size: var(--font-size-sm);
 }
+
+.error {
+    margin: 0 auto;
+    width: fit-content;
+    margin-top: var(--margin-lg);
+    padding: 10px;
+    text-align: center;
+
+    background-color: #fdecea;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}

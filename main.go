@@ -25,6 +25,8 @@ type Match struct {
 	Right    string
 }
 
+const MIN_KEYWORD_LENGTH = 4
+const MAX_KEYWORD_LENGTH = 30
 const CONTEXT_LENGTH = 30
 
 func isLetter(b byte) bool {
@@ -182,12 +184,26 @@ type ServerConfig struct {
 	Port          int
 }
 
-func handleConcord(config ServerConfig, pages []Page, writer http.ResponseWriter, req *http.Request) {
-	// TODO: error if keyword is less than 4 letters
+func writeError(writer http.ResponseWriter, message string) {
+	writer.WriteHeader(http.StatusBadRequest)
+	s := fmt.Sprintf("{\"error\":{\"message\":\"%s\"}}", message)
+	writer.Write([]byte(s))
+}
 
+func handleConcord(config ServerConfig, pages []Page, writer http.ResponseWriter, req *http.Request) {
 	startTime := time.Now()
 	query := req.URL.Query()
 	keyword := query.Get("w")
+
+	if len(keyword) < MIN_KEYWORD_LENGTH {
+		writeError(writer, fmt.Sprintf("The keyword must be at least %d letters long.", MIN_KEYWORD_LENGTH))
+		return
+	}
+
+	if len(keyword) > MAX_KEYWORD_LENGTH {
+		writeError(writer, fmt.Sprintf("The keyword canont be longer than %d letters.", MAX_KEYWORD_LENGTH))
+		return
+	}
 
 	quitChannel := make(chan struct{})
 	go func() {
