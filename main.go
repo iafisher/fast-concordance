@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"runtime/pprof"
 	"sync"
 	"time"
 )
@@ -103,10 +104,11 @@ func main() {
 	slow := flag.Bool("slow", false, "run the webserver in slow mode")
 	timeOutMillis := flag.Int("timeout-ms", 1000, "time out requests after this many milliseconds")
 	port := flag.Int("port", -1, "listen on this port")
+	takeProfile := flag.Bool("profile", false, "take a pprof profile")
 	flag.Parse()
 
 	if *query != "" {
-		runOneQuery(*query, *directory)
+		runOneQuery(*query, *directory, *takeProfile)
 		return
 	}
 
@@ -313,31 +315,46 @@ func httpWriteFile(writer http.ResponseWriter, path string, mimeType string) {
 	writer.Write(data)
 }
 
-func runOneQuery(query string, directory string) {
+func runOneQuery(query string, directory string, takeProfile bool) {
 	pages, err := loadPages(directory)
 	if err != nil {
 		panic(err)
 	}
 
+	startTime := time.Now()
 	quitChannel := make(chan struct{})
 	go func() {
 		time.Sleep(time.Millisecond * time.Duration(1000))
 		close(quitChannel)
 	}()
 
+	if takeProfile {
+		profFile, err := os.Create("fast.perf")
+		defer func() { profFile.Close() }()
+		if err != nil {
+			panic(err)
+		}
+		pprof.StartCPUProfile(profFile)
+	}
+
 	ch, err := streamSearch(pages, query, quitChannel)
 	if err != nil {
 		panic(err)
 	}
 
+	var durationToFirstMs int64 = -1
 	shouldQuit := false
 	for result := range ch {
 		for _, match := range result.Matches {
-			jsonB, err := json.Marshal(match)
+			if durationToFirstMs == -1 {
+				durationToFirstMs = time.Since(startTime).Milliseconds()
+			}
+
+			_, err := json.Marshal(match)
 			if err != nil {
 				continue
 			}
-			fmt.Println(string(jsonB))
+			// fmt.Println(string(jsonB))
 
 			select {
 			case _, ok := <-quitChannel:
@@ -354,6 +371,13 @@ func runOneQuery(query string, directory string) {
 			break
 		}
 	}
+	durationMs := time.Since(startTime).Milliseconds()
+	if takeProfile {
+		pprof.StopCPUProfile()
+	}
+
+	fmt.Printf("first:  % 6d ms\n", durationToFirstMs)
+	fmt.Printf("last:   % 6d ms\n", durationMs)
 }
 
 func webServer(config ServerConfig) {
