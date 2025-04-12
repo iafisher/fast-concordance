@@ -2,6 +2,16 @@ const DISPLAY_LIMIT = 10000;
 
 const GENERIC_ERROR_MESSAGE = "Sorry, there was an error.";
 
+async function getManifest() {
+    return {
+        "bram-stoker_dracula": {
+            author: "Bram Stoker",
+            title: "Dracula",
+            url: "https://standardebooks.org/ebooks/bram-stoker/dracula"
+        }
+    };
+}
+
 async function search(keyword, resultsOut, statsOut) {
     const startTime = performance.now();
     const httpResult = await fetch(`/concordance/concord?w=${encodeURIComponent(keyword)}`);
@@ -57,6 +67,9 @@ class PageView {
         this.results = [];
         this.stats = { millisToFirstResult: null, millisToLastResult: null };
         this.error = null;
+        this.manifest = null;
+
+        getManifest().then(manifest => { this.manifest = manifest });
     }
 
     view() {
@@ -65,7 +78,7 @@ class PageView {
             m(StatsView, { stats: this.stats, resultsCount: this.results.length }),
             this.error !== null
                 ? m(ErrorView, { error: this.error })
-                : m(ResultsListView, { keyword: this.keyword, results: this.results })]);
+                : m(ResultsListView, { keyword: this.keyword, results: this.results, manifest: this.manifest })]);
     }
 
     onEnter(keyword) {
@@ -137,6 +150,7 @@ class ResultsListView {
     view(vnode) {
         const results = vnode.attrs.results;
         const keyword = vnode.attrs.keyword;
+        const manifest = vnode.attrs.manifest;
         if (results.length > DISPLAY_LIMIT) {
             return [
                 m("div.results", results.slice(0, DISPLAY_LIMIT).map(result => m(ResultView, { result, keyword }))),
@@ -159,9 +173,28 @@ class ResultView {
                 m("div.center", [keyword]),
                 m("div.side.right", [result.right]),
             ]),
-            m("div.source", [result.filename])
+            m(SourceView, { result })
         ];
     }
 }
 
+class SourceView {
+    view(vnode) {
+        const result = vnode.attrs.result;
+        if (window.ebooksManifest !== null) {
+            const source = window.ebooksManifest[result.filename];
+            if (source !== undefined) {
+                return m("div.source", [
+                    m("a", { href: source.url}, [m("cite", [source.title])]),
+                    ` (${source.author})`
+                ]);
+            }
+        }
+        return m("div.source", [result.filename]);
+    }
+}
+
 m.mount(document.body, PageView);
+getManifest().then(m => {
+    window.ebooksManifest = m;
+});
