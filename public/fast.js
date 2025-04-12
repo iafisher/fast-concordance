@@ -2,8 +2,7 @@
 
 async function search(keyword, resultsOut, statsOut) {
     const startTime = performance.now();
-    // TODO: safe URL construction
-    const httpResult = await fetch(`/concordance/concord?w=${keyword}`);
+    const httpResult = await fetch(`/concordance/concord?w=${encodeURIComponent(keyword)}`);
     // TODO: handle HTTP error
     const reader = httpResult.body.getReader();
     const decoder = new TextDecoder();
@@ -56,7 +55,7 @@ class PageView {
         return m("main", [
             m(InputView, { onEnter: (keyword) => this.onEnter(keyword) }),
             m(StatsView, { stats: this.stats, resultsCount: this.results.length }),
-            m(ResultsView, { keyword: this.keyword, results: this.results })]);
+            m(ResultsListView, { keyword: this.keyword, results: this.results })]);
     }
 
     onEnter(keyword) {
@@ -75,7 +74,7 @@ class InputView {
     }
 
     view() {
-        return m("input", { onkeydown: (e) => this.onkeydown(e) });
+        return m("input", { placeholder: "Type 4 letters or more...", onkeydown: (e) => this.onkeydown(e) });
     }
 
     onkeydown(e) {
@@ -108,16 +107,26 @@ class StatsView {
     }
 }
 
-class ResultsView {
+class ResultsListView {
     view(vnode) {
         const results = vnode.attrs.results;
         const keyword = vnode.attrs.keyword;
-        return m("div.results",
-            [
-                m("div.side.left", results.map(result => m("div", result.left))),
-                m("div.center", results.map(_ => m("div", keyword))),
-                m("div.side.right", results.map(result => m("div", result.right))),
-            ]);
+        return m("div.results", results.map(result => m(ResultView, { result, keyword })));
+    }
+}
+
+class ResultView {
+    view(vnode) {
+        const result = vnode.attrs.result;
+        const keyword = vnode.attrs.keyword;
+        return [
+            m("div.result", [
+                m("div.side.left", [result.left]),
+                m("div.center", [keyword]),
+                m("div.side.right", [result.right]),
+            ]),
+            m("div.source", [result.filename])
+        ];
     }
 }
 

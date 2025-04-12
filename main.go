@@ -183,6 +183,8 @@ type ServerConfig struct {
 }
 
 func handleConcord(config ServerConfig, pages []Page, writer http.ResponseWriter, req *http.Request) {
+	// TODO: error if keyword is less than 4 letters
+
 	startTime := time.Now()
 	query := req.URL.Query()
 	keyword := query.Get("w")
@@ -306,13 +308,23 @@ func webServer(config ServerConfig) {
 		panic("could not load pages")
 	}
 
+	// TODO: Prod URLs are rooted at `/concordance` while localhost URLs are rooted
+	// at `/`, so we have to have duplicate entries here.
 	http.HandleFunc("/concord", func(writer http.ResponseWriter, req *http.Request) {
+		handleConcord(config, pages, writer, req)
+	})
+	http.HandleFunc("/concordance/concord", func(writer http.ResponseWriter, req *http.Request) {
 		handleConcord(config, pages, writer, req)
 	})
 	http.HandleFunc("/", handleIndex)
 	// TODO: only serve static assets in dev
 	http.HandleFunc("/static/fast.js", handleJs)
 	http.HandleFunc("/static/fast.css", handleCss)
+	http.HandleFunc("/concordance/static/fast.js", handleJs)
+	http.HandleFunc("/concordance/static/fast.css", handleCss)
+
+	// TODO: 404 page
+
 	addr := fmt.Sprintf(":%d", config.Port)
 	log.Printf("listening on %s", addr)
 	log.Fatal("server failed", http.ListenAndServe(addr, nil))
