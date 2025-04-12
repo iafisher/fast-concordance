@@ -105,6 +105,11 @@ func main() {
 	limitToNumCPUs := flag.Bool("limit-to-num-cpus", false, "only spawn NUM_CPUS goroutines")
 	flag.Parse()
 
+	if *directory == "" {
+		fmt.Fprintln(os.Stderr, "-directory is required")
+		os.Exit(1)
+	}
+
 	if *query != "" {
 		runOneQuery(*query, *directory, *takeProfile, *limitToNumCPUs)
 		return
