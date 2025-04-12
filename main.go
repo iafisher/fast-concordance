@@ -57,11 +57,10 @@ func SliceRightUtf8(text string, index int, end int) string {
 }
 
 // TODO: directly write matches to channel?
-func findConcordance(page Page, rgx *regexp.Regexp, quitChannel chan struct{}) []Match {
+func findConcordance(page Page, rgx *regexp.Regexp, outChannel chan Match, quitChannel chan struct{}) {
 	text := page.Text
 	indices := rgx.FindAllStringSubmatchIndex(text, -1)
 
-	matches := []Match{}
 	for _, pair := range indices {
 		start := pair[0]
 		end := pair[1]
@@ -82,8 +81,7 @@ func findConcordance(page Page, rgx *regexp.Regexp, quitChannel chan struct{}) [
 			Left:     SliceLeftUtf8(text, start, leftStart),
 			Right:    SliceRightUtf8(text, end, rightEnd),
 		}
-
-		matches = append(matches, match)
+		outChannel <- match
 
 		select {
 		case _, ok := <-quitChannel:
@@ -94,8 +92,6 @@ func findConcordance(page Page, rgx *regexp.Regexp, quitChannel chan struct{}) [
 			continue
 		}
 	}
-
-	return matches
 }
 
 func main() {
@@ -164,9 +160,9 @@ func loadPages(directory string) (Pages, error) {
 	return Pages{Pages: pages, ManifestJson: manifestJson}, nil
 }
 
-func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) (chan SearchResult, error) {
+func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) (chan Match, error) {
 	var wg sync.WaitGroup
-	resultsChannel := make(chan SearchResult, 1000)
+	outChannel := make(chan Match, 1000)
 
 	// The '\b' word boundary regex pattern is very slow. So we don't use it here and
 	// instead filter for word boundaries inside `findConcordance`.
@@ -180,21 +176,16 @@ func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) (chan 
 		wg.Add(1)
 		go func(page Page) {
 			defer wg.Done()
-			matches := findConcordance(page, rgx, quitChannel)
-
-			resultsChannel <- SearchResult{
-				NumBytes: len(page.Text),
-				Matches:  matches,
-			}
+			findConcordance(page, rgx, outChannel, quitChannel)
 		}(page)
 	}
 
 	go func() {
 		wg.Wait()
-		close(resultsChannel)
+		close(outChannel)
 	}()
 
-	return resultsChannel, nil
+	return outChannel, nil
 }
 
 type ServerConfig struct {
@@ -240,40 +231,35 @@ func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter,
 	writer.Header().Set("Content-Type", "application/x-ndjson")
 	flusher := writer.(http.Flusher)
 	resultCount := 0
-	shouldQuit := false
-	for result := range ch {
-		for _, match := range result.Matches {
-			resultCount += 1
-			jsonB, err := json.Marshal(match)
-			if err != nil {
-				continue
-			}
-
-			writer.Write(jsonB)
-			writer.Write([]byte("\n"))
-			flusher.Flush()
-			if config.SlowMode {
-				time.Sleep(10 * time.Millisecond)
-			}
-
-			select {
-			case _, ok := <-quitChannel:
-				if !ok {
-					shouldQuit = true
-					break
-				}
-			default:
-				continue
-			}
+	quitEarly := false
+	for match := range ch {
+		resultCount += 1
+		jsonB, err := json.Marshal(match)
+		if err != nil {
+			continue
 		}
 
-		if shouldQuit {
-			break
+		writer.Write(jsonB)
+		writer.Write([]byte("\n"))
+		flusher.Flush()
+		if config.SlowMode {
+			time.Sleep(10 * time.Millisecond)
 		}
+
+		select {
+		case _, ok := <-quitChannel:
+			if !ok {
+				quitEarly = true
+				break
+			}
+		default:
+			continue
+		}
+
 	}
 
 	durationMs := time.Since(startTime).Milliseconds()
-	if shouldQuit {
+	if quitEarly {
 		log.Printf("%d result(s) for '%v' in %d ms (timed out)", resultCount, keyword, durationMs)
 	} else {
 		log.Printf("%d result(s) for '%v' in %d ms", resultCount, keyword, durationMs)
@@ -343,32 +329,24 @@ func runOneQuery(query string, directory string, takeProfile bool) {
 	}
 
 	var durationToFirstMs int64 = -1
-	shouldQuit := false
-	for result := range ch {
-		for _, match := range result.Matches {
-			if durationToFirstMs == -1 {
-				durationToFirstMs = time.Since(startTime).Milliseconds()
-			}
-
-			_, err := json.Marshal(match)
-			if err != nil {
-				continue
-			}
-			// fmt.Println(string(jsonB))
-
-			select {
-			case _, ok := <-quitChannel:
-				if !ok {
-					shouldQuit = true
-					break
-				}
-			default:
-				continue
-			}
+	for match := range ch {
+		if durationToFirstMs == -1 {
+			durationToFirstMs = time.Since(startTime).Milliseconds()
 		}
 
-		if shouldQuit {
-			break
+		_, err := json.Marshal(match)
+		if err != nil {
+			continue
+		}
+		// fmt.Println(string(jsonB))
+
+		select {
+		case _, ok := <-quitChannel:
+			if !ok {
+				break
+			}
+		default:
+			continue
 		}
 	}
 	durationMs := time.Since(startTime).Milliseconds()
@@ -383,8 +361,7 @@ func runOneQuery(query string, directory string, takeProfile bool) {
 func webServer(config ServerConfig) {
 	pages, err := loadPages(config.Directory)
 	if err != nil {
-		// TODO: don't panic
-		panic("could not load pages")
+		log.Fatalf("could not load pages: %v", err)
 	}
 
 	// TODO: Prod URLs are rooted at `/concordance` while localhost URLs are rooted
@@ -408,20 +385,7 @@ func webServer(config ServerConfig) {
 		handleManifest(pages, writer, req)
 	})
 
-	// TODO: 404 page
-
 	addr := fmt.Sprintf(":%d", config.Port)
 	log.Printf("listening on %s", addr)
 	log.Fatal("server failed", http.ListenAndServe(addr, nil))
-}
-
-type SearcherStats struct {
-	NumMatches int
-	NumFiles   int
-	NumBytes   int
-}
-
-type SearchResult struct {
-	NumBytes int
-	Matches  []Match
 }
