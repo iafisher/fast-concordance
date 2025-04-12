@@ -1,9 +1,10 @@
-// TODO: truncate at 10,000 results
+const DISPLAY_LIMIT = 10000;
 
 async function search(keyword, resultsOut, statsOut) {
     const startTime = performance.now();
     const httpResult = await fetch(`/concordance/concord?w=${encodeURIComponent(keyword)}`);
     // TODO: handle HTTP error
+    // TODO: Can I close the connection when display limit is hit and cancel request on server?
     const reader = httpResult.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -111,7 +112,15 @@ class ResultsListView {
     view(vnode) {
         const results = vnode.attrs.results;
         const keyword = vnode.attrs.keyword;
-        return m("div.results", results.map(result => m(ResultView, { result, keyword })));
+        if (results.length > DISPLAY_LIMIT) {
+            return [
+                m("div.results", results.slice(0, DISPLAY_LIMIT).map(result => m(ResultView, { result, keyword }))),
+                m("hr"),
+                m("div.truncated", `Hit display limit of ${DISPLAY_LIMIT}. Further results truncated.`)
+            ];
+        } else {
+            return m("div.results", results.map(result => m(ResultView, { result, keyword })));
+        }
     }
 }
 
