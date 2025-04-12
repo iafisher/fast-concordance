@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"runtime"
 	"runtime/pprof"
 	"sync"
 	"time"
@@ -101,10 +102,11 @@ func main() {
 	timeOutMillis := flag.Int("timeout-ms", 1000, "time out requests after this many milliseconds")
 	port := flag.Int("port", -1, "listen on this port")
 	takeProfile := flag.Bool("profile", false, "take a pprof profile")
+	limitToNumCPUs := flag.Bool("limit-to-num-cpus", false, "only spawn NUM_CPUS goroutines")
 	flag.Parse()
 
 	if *query != "" {
-		runOneQuery(*query, *directory, *takeProfile)
+		runOneQuery(*query, *directory, *takeProfile, *limitToNumCPUs)
 		return
 	}
 
@@ -160,7 +162,7 @@ func loadPages(directory string) (Pages, error) {
 	return Pages{Pages: pages, ManifestJson: manifestJson}, nil
 }
 
-func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) (chan Match, error) {
+func streamSearch(pages Pages, keyword string, quitChannel chan struct{}, limitToNumCPUs bool) (chan Match, error) {
 	var wg sync.WaitGroup
 	outChannel := make(chan Match, 1000)
 
@@ -172,12 +174,36 @@ func streamSearch(pages Pages, keyword string, quitChannel chan struct{}) (chan 
 		return nil, err
 	}
 
-	for _, page := range pages.Pages {
-		wg.Add(1)
-		go func(page Page) {
-			defer wg.Done()
-			findConcordance(page, rgx, outChannel, quitChannel)
-		}(page)
+	if !limitToNumCPUs {
+		for _, page := range pages.Pages {
+			wg.Add(1)
+			go func(page Page) {
+				defer wg.Done()
+				findConcordance(page, rgx, outChannel, quitChannel)
+			}(page)
+		}
+	} else {
+		ncpus := runtime.NumCPU()
+		rangeLen := len(pages.Pages) / ncpus
+
+		for i := range ncpus {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+
+				start := i * rangeLen
+				var end int
+				if i == ncpus-1 {
+					end = len(pages.Pages)
+				} else {
+					end = start + rangeLen
+				}
+
+				for _, page := range pages.Pages[start:end] {
+					findConcordance(page, rgx, outChannel, quitChannel)
+				}
+			}(i)
+		}
 	}
 
 	go func() {
@@ -222,7 +248,7 @@ func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter,
 		quitChannel <- struct{}{}
 	}()
 
-	ch, err := streamSearch(pages, keyword, quitChannel)
+	ch, err := streamSearch(pages, keyword, quitChannel, false)
 	if err != nil {
 		writer.WriteHeader(http.StatusInternalServerError)
 		return
@@ -301,7 +327,7 @@ func httpWriteFile(writer http.ResponseWriter, path string, mimeType string) {
 	writer.Write(data)
 }
 
-func runOneQuery(query string, directory string, takeProfile bool) {
+func runOneQuery(query string, directory string, takeProfile bool, limitToNumCPUs bool) {
 	pages, err := loadPages(directory)
 	if err != nil {
 		panic(err)
@@ -323,7 +349,7 @@ func runOneQuery(query string, directory string, takeProfile bool) {
 		pprof.StartCPUProfile(profFile)
 	}
 
-	ch, err := streamSearch(pages, query, quitChannel)
+	ch, err := streamSearch(pages, query, quitChannel, limitToNumCPUs)
 	if err != nil {
 		panic(err)
 	}
