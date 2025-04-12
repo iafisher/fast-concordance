@@ -219,7 +219,7 @@ func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter,
 	quitChannel := make(chan struct{})
 	go func() {
 		time.Sleep(time.Millisecond * time.Duration(config.TimeOutMillis))
-		close(quitChannel)
+		quitChannel <- struct{}{}
 	}()
 
 	ch, err := streamSearch(pages, keyword, quitChannel)
@@ -243,19 +243,19 @@ func handleConcord(config ServerConfig, pages Pages, writer http.ResponseWriter,
 		writer.Write([]byte("\n"))
 		flusher.Flush()
 		if config.SlowMode {
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 
 		select {
-		case _, ok := <-quitChannel:
-			if !ok {
-				quitEarly = true
-				break
-			}
+		case _ = <-quitChannel:
+			quitEarly = true
 		default:
 			continue
 		}
 
+		if quitEarly {
+			break
+		}
 	}
 
 	durationMs := time.Since(startTime).Milliseconds()
