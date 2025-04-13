@@ -1,6 +1,7 @@
 const DISPLAY_LIMIT = 10000;
 
 const GENERIC_ERROR_MESSAGE = "An error occurred and the request could not be completed.";
+const RATE_LIMITED_ERROR_MESSAGE = "Your IP has made too many requests lately. Please try again later.";
 
 async function getManifest() {
     const httpResult = await fetch("/concordance/manifest");
@@ -15,8 +16,12 @@ async function search(keyword, resultsOut, statsOut) {
     const startTime = performance.now();
     const httpResult = await fetch(`/concordance/concord?w=${encodeURIComponent(keyword)}`);
     if (!httpResult.ok) {
-        const data = await httpResult.json();
-        throw { error: data.error };
+        if (httpResult.status === 429) {
+            throw { error: { message: RATE_LIMITED_ERROR_MESSAGE } };
+        } else {
+            const data = await httpResult.json();
+            throw { error: data.error };
+        }
     }
 
     // TODO: Can I close the connection when display limit is hit and cancel request on server?

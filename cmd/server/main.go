@@ -24,6 +24,9 @@ func main() {
 	timeOutMillis := flag.Int("timeout-ms", 1000, "time out requests after this many milliseconds")
 	port := flag.Int("port", -1, "listen on this port")
 	maxConcurrent := flag.Int("max-concurrent", 4, "maximum requests to allow at once")
+	rateLimitRequests := flag.Int("rate-limit-requests", 10, "with -rate-limit-interval, maximum requests to allow in interval")
+	rateLimitInterval := flag.Duration("rate-limit-interval", time.Second*10, "with -rate-limit-requests, maximum requests to allow in interval")
+	rateLimitPenalty := flag.Duration("rate-limit-penalty", time.Minute, "penalty for rate-limited IPs")
 	flag.Parse()
 
 	if *directory == "" {
@@ -36,12 +39,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	rateLimiter := pkg.NewRateLimiter(*rateLimitRequests, *rateLimitInterval, *rateLimitPenalty)
 	config := ServerConfig{
 		Directory:     *directory,
 		SlowMode:      *slow,
 		TimeOutMillis: *timeOutMillis,
 		Port:          *port,
 		Semaphore:     semaphore.NewWeighted(int64(*maxConcurrent)),
+		RateLimiter:   &rateLimiter,
 	}
 
 	webServer(config)
@@ -84,6 +89,7 @@ type ServerConfig struct {
 	SlowMode      bool
 	TimeOutMillis int
 	Port          int
+	RateLimiter   *pkg.IpRateLimiter
 	Semaphore     *semaphore.Weighted
 }
 
@@ -121,6 +127,17 @@ func handleConcord(config ServerConfig, pages pkg.Pages, writer http.ResponseWri
 	if len(keyword) > MAX_KEYWORD_LENGTH {
 		writeError(writer, fmt.Sprintf("The keyword canont be longer than %d letters.", MAX_KEYWORD_LENGTH))
 		return
+	}
+
+	ipList, ok := req.Header["X-Real-Ip"]
+
+	ip := "unknown"
+	if ok && len(ipList) > 0 {
+		ip = ipList[0]
+		if !config.RateLimiter.IsOk(ip, startTime) {
+			writer.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
 	}
 
 	flusher := writer.(http.Flusher)
@@ -175,13 +192,6 @@ func handleConcord(config ServerConfig, pages pkg.Pages, writer http.ResponseWri
 		if quitEarly {
 			break
 		}
-	}
-
-	ipList, ok := req.Header["X-Real-Ip"]
-
-	ip := "unknown"
-	if ok && len(ipList) > 0 {
-		ip = ipList[0]
 	}
 
 	durationMs := time.Since(startTime).Milliseconds()
