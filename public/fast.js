@@ -49,12 +49,24 @@ async function search(keyword, resultsOut, statsOut) {
                     console.error("error decoding JSON", e, trimmed);
                     return;
                 }
-                resultsOut.push(data);
-                m.redraw();
 
-                if (statsOut.millisToFirstResult === null) {
-                    statsOut.millisToFirstResult = performance.now() - startTime;
+                if (data.status !== undefined) {
+                    if (data.status === "queued") {
+                        statsOut.queued = true;
+                    } else if (data.status === "ready") {
+                        statsOut.queued = false;
+                    } else {
+                        console.warn("unknown status message received", data);
+                    }
+                } else {
+                    statsOut.queued = false;
+                    resultsOut.push(data);
+                    if (statsOut.millisToFirstResult === null) {
+                        statsOut.millisToFirstResult = performance.now() - startTime;
+                    }
                 }
+
+                m.redraw();
             }
         }
     }
@@ -64,7 +76,7 @@ class PageView {
     constructor() {
         this.keyword = "";
         this.results = [];
-        this.stats = { millisToFirstResult: null, millisToLastResult: null };
+        this.stats = { millisToFirstResult: null, millisToLastResult: null, queued: false };
         this.error = null;
         this.manifest = null;
         this.loading = false;
@@ -73,13 +85,17 @@ class PageView {
     }
 
     view() {
+        const showError = this.error !== null;
+        const showQueued = !showError && this.stats.queued;
+        const showResults = !showQueued;
+        const showLoading = showResults && this.loading;
         return m("main", [
             m(InputView, { onEnter: (keyword) => this.onEnter(keyword) }),
             m(StatsView, { stats: this.stats, resultsCount: this.results.length }),
-            this.error !== null
-                ? m(ErrorView, { error: this.error })
-                : m(ResultsListView, { keyword: this.keyword, results: this.results, manifest: this.manifest }),
-            this.error === null && this.loading ? m(LoadingView) : null,
+            showError ? m(ErrorView, { error: this.error }) : null,
+            showQueued ? m(QueuedView) : null,
+            showResults ? m(ResultsListView, { keyword: this.keyword, results: this.results, manifest: this.manifest }) : null,
+            showLoading ? m(LoadingView) : null,
         ]);
     }
 
@@ -88,6 +104,7 @@ class PageView {
         this.results = [];
         this.stats.millisToFirstResult = null;
         this.stats.millisToLastResult = null;
+        this.stats.queued = false;
         this.error = null;
         this.loading = true;
         search(this.keyword, this.results, this.stats).then(() => {
@@ -114,7 +131,13 @@ class ErrorView {
 
 class LoadingView {
     view() {
-        return m("div.loading", "Loading more results...");
+        return m("div.message", "Loading more results...");
+    }
+}
+
+class QueuedView {
+    view() {
+        return m("div.message", "The server is under heavy load. Your request has been queued, and will begin shortly.");
     }
 }
 

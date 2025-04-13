@@ -76,7 +76,7 @@ input {
     font-size: var(--font-size-sm);
 }
 
-.error, .loading {
+.error, .message {
     margin: 0 auto;
     width: fit-content;
     margin-top: var(--margin-lg);
@@ -90,6 +90,6 @@ input {
     color: #721c24;
 }
 
-.loading {
+.message {
     font-size: var(--font-size-sm)
 }
