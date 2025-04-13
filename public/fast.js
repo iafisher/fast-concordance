@@ -1,6 +1,6 @@
 const DISPLAY_LIMIT = 10000;
 
-const GENERIC_ERROR_MESSAGE = "Sorry, there was an error.";
+const GENERIC_ERROR_MESSAGE = "An error occurred and the request could not be completed.";
 
 async function getManifest() {
     const httpResult = await fetch("/concordance/manifest");
@@ -112,7 +112,7 @@ class PageView {
             m.redraw();
         }).catch((e) => {
             this.loading = false;
-            if (typeof e.error.message === "string") {
+            if (e.error !== undefined && typeof e.error.message === "string") {
                 this.error = e.error.message;
             } else {
                 this.error = GENERIC_ERROR_MESSAGE;
