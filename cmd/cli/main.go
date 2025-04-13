@@ -63,15 +63,15 @@ func runMeasureBaseline(directory string, maxGoroutines int) {
 	} else {
 		var wg sync.WaitGroup
 
-		outputChan := make(chan int)
+		output := make([]int, len(pages.Pages))
 
 		if maxGoroutines == -1 {
-			for _, page := range pages.Pages {
+			for i, page := range pages.Pages {
 				wg.Add(1)
-				go func(page pkg.Page) {
+				go func(i int, page pkg.Page) {
 					defer wg.Done()
-					outputChan <- countLetterA(page)
-				}(page)
+					output[i] = countLetterA(page)
+				}(i, page)
 			}
 		} else {
 			// TODO: pull this logic out into a common function in `lib.go`
@@ -95,19 +95,16 @@ func runMeasureBaseline(directory string, maxGoroutines int) {
 						end = start + rangeLen
 					}
 
-					for _, page := range pages.Pages[start:end] {
-						outputChan <- countLetterA(page)
+					for pageIndex, page := range pages.Pages[start:end] {
+						output[pageIndex+start] = countLetterA(page)
 					}
 				}(i)
 			}
 		}
 
-		go func() {
-			wg.Wait()
-			close(outputChan)
-		}()
+		wg.Wait()
 
-		for n := range outputChan {
+		for _, n := range output {
 			total += n
 		}
 	}
