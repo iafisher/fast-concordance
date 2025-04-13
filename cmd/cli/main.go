@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 	"runtime/pprof"
+	"sync"
 	"time"
 
 	"github.com/iafisher/fast-concordance/pkg"
@@ -16,6 +18,7 @@ func main() {
 	query := flag.String("query", "", "keyword to query")
 	takeProfile := flag.Bool("profile", false, "take a pprof profile")
 	maxGoroutines := flag.Int("max-goroutines", -1, "use this many goroutines (-1 for no limit -- the default, 0 for 1 per CPU core)")
+	measureBaseline := flag.Bool("measure-baseline", false, "measure baseline performance")
 	flag.Parse()
 
 	if *directory == "" {
@@ -23,12 +26,95 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *query == "" {
-		fmt.Fprintln(os.Stderr, "-query is required")
-		os.Exit(1)
+	if *measureBaseline {
+		runMeasureBaseline(*directory, *maxGoroutines)
+	} else {
+		if *query == "" {
+			fmt.Fprintln(os.Stderr, "-query is required")
+			os.Exit(1)
+		}
+
+		runOneQuery(*query, *directory, *takeProfile, *maxGoroutines)
+	}
+}
+
+func countLetterA(page pkg.Page) int {
+	n := 0
+	for _, c := range page.Text {
+		if c == 'a' {
+			n += 1
+		}
+	}
+	return n
+}
+
+func runMeasureBaseline(directory string, maxGoroutines int) {
+	pages, err := pkg.LoadPages(directory)
+	if err != nil {
+		panic(err)
 	}
 
-	runOneQuery(*query, *directory, *takeProfile, *maxGoroutines)
+	startTime := time.Now()
+	total := 0
+	if maxGoroutines == 1 {
+		for _, page := range pages.Pages {
+			total += countLetterA(page)
+		}
+	} else {
+		var wg sync.WaitGroup
+
+		outputChan := make(chan int)
+
+		if maxGoroutines == -1 {
+			for _, page := range pages.Pages {
+				wg.Add(1)
+				go func(page pkg.Page) {
+					defer wg.Done()
+					outputChan <- countLetterA(page)
+				}(page)
+			}
+		} else {
+			// TODO: pull this logic out into a common function in `lib.go`
+			maxGoroutines = min(len(pages.Pages), maxGoroutines)
+			if maxGoroutines == 0 {
+				maxGoroutines = runtime.NumCPU()
+			}
+
+			rangeLen := len(pages.Pages) / maxGoroutines
+
+			for i := range maxGoroutines {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+
+					start := i * rangeLen
+					var end int
+					if i == maxGoroutines-1 {
+						end = len(pages.Pages)
+					} else {
+						end = start + rangeLen
+					}
+
+					for _, page := range pages.Pages[start:end] {
+						outputChan <- countLetterA(page)
+					}
+				}(i)
+			}
+		}
+
+		go func() {
+			wg.Wait()
+			close(outputChan)
+		}()
+
+		for n := range outputChan {
+			total += n
+		}
+	}
+	durationMillis := time.Since(startTime).Milliseconds()
+
+	fmt.Printf("result:   %d\n", total)
+	fmt.Printf("duration: %d ms\n", durationMillis)
 }
 
 func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines int) {
