@@ -9,7 +9,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/iafisher/fast-concordance/pkg"
+	"github.com/iafisher/fast-concordance/internal/concordance"
+	"github.com/iafisher/fast-concordance/internal/ratelimiter"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -39,7 +40,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	rateLimiter := pkg.NewRateLimiter(*rateLimitRequests, *rateLimitInterval, *rateLimitPenalty)
+	rateLimiter := ratelimiter.NewRateLimiter(*rateLimitRequests, *rateLimitInterval, *rateLimitPenalty)
 	config := ServerConfig{
 		Directory:     *directory,
 		SlowMode:      *slow,
@@ -53,7 +54,7 @@ func main() {
 }
 
 func webServer(config ServerConfig) {
-	pages, err := pkg.LoadPages(config.Directory)
+	pages, err := concordance.LoadPages(config.Directory)
 	if err != nil {
 		log.Fatalf("could not load pages: %v", err)
 	}
@@ -89,7 +90,7 @@ type ServerConfig struct {
 	SlowMode      bool
 	TimeOutMillis int
 	Port          int
-	RateLimiter   *pkg.IpRateLimiter
+	RateLimiter   *ratelimiter.IpRateLimiter
 	Semaphore     *semaphore.Weighted
 }
 
@@ -114,7 +115,7 @@ func writeJsonLineIgnoreError(writer http.ResponseWriter, flusher http.Flusher, 
 	flusher.Flush()
 }
 
-func handleConcord(config ServerConfig, pages pkg.Pages, writer http.ResponseWriter, req *http.Request) {
+func handleConcord(config ServerConfig, pages concordance.Pages, writer http.ResponseWriter, req *http.Request) {
 	startTime := time.Now()
 	query := req.URL.Query()
 	keyword := query.Get("w")
@@ -165,7 +166,7 @@ func handleConcord(config ServerConfig, pages pkg.Pages, writer http.ResponseWri
 		}()
 	}
 
-	ch, err := pkg.StreamSearch(pages, keyword, quitChannel, -1)
+	ch, err := concordance.StreamSearch(pages, keyword, quitChannel, -1)
 	if err != nil {
 		writer.WriteHeader(http.StatusInternalServerError)
 		return
@@ -221,7 +222,7 @@ func handleCss(writer http.ResponseWriter, req *http.Request) {
 	httpWriteFile(writer, "public/fast.css", "text/css")
 }
 
-func handleManifest(pages pkg.Pages, writer http.ResponseWriter, req *http.Request) {
+func handleManifest(pages concordance.Pages, writer http.ResponseWriter, req *http.Request) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.Write(pages.ManifestJson)
 }

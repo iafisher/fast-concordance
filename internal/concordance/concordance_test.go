@@ -1,4 +1,4 @@
-package pkg
+package concordance
 
 import "testing"
 

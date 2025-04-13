@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iafisher/fast-concordance/pkg"
+	"github.com/iafisher/fast-concordance/internal/concordance"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 	}
 }
 
-func countLetterA(page pkg.Page) int {
+func countLetterA(page concordance.Page) int {
 	n := 0
 	for _, c := range page.Text {
 		if c == 'a' {
@@ -49,7 +49,7 @@ func countLetterA(page pkg.Page) int {
 }
 
 func runMeasureBaseline(directory string, maxGoroutines int) {
-	pages, err := pkg.LoadPages(directory)
+	pages, err := concordance.LoadPages(directory)
 	if err != nil {
 		panic(err)
 	}
@@ -68,7 +68,7 @@ func runMeasureBaseline(directory string, maxGoroutines int) {
 		if maxGoroutines == -1 {
 			for i, page := range pages.Pages {
 				wg.Add(1)
-				go func(i int, page pkg.Page) {
+				go func(i int, page concordance.Page) {
 					defer wg.Done()
 					output[i] = countLetterA(page)
 				}(i, page)
@@ -115,7 +115,7 @@ func runMeasureBaseline(directory string, maxGoroutines int) {
 }
 
 func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines int) {
-	pages, err := pkg.LoadPages(directory)
+	pages, err := concordance.LoadPages(directory)
 	if err != nil {
 		panic(err)
 	}
@@ -136,7 +136,7 @@ func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines
 		pprof.StartCPUProfile(profFile)
 	}
 
-	ch, err := pkg.StreamSearch(pages, query, quitChannel, maxGoroutines)
+	ch, err := concordance.StreamSearch(pages, query, quitChannel, maxGoroutines)
 	if err != nil {
 		panic(err)
 	}
