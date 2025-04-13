@@ -23,7 +23,7 @@ func main() {
 	slow := flag.Bool("slow", false, "run the webserver in slow mode")
 	timeOutMillis := flag.Int("timeout-ms", 1000, "time out requests after this many milliseconds")
 	port := flag.Int("port", -1, "listen on this port")
-	maxConcurrent := flag.Int("max-concurrent", 2, "maximum requests to allow at once")
+	maxConcurrent := flag.Int("max-concurrent", 4, "maximum requests to allow at once")
 	flag.Parse()
 
 	if *directory == "" {
