@@ -57,7 +57,6 @@ func SliceRightUtf8(text string, index int, end int) string {
 	}
 }
 
-// TODO: directly write matches to channel?
 func findConcordance(page Page, rgx *regexp.Regexp, outChannel chan Match, quitChannel chan struct{}) {
 	text := page.Text
 	indices := rgx.FindAllStringSubmatchIndex(text, -1)
