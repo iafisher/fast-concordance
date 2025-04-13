@@ -188,6 +188,7 @@ func streamSearch(pages Pages, keyword string, quitChannel chan struct{}, maxGor
 			}(page)
 		}
 	} else {
+		maxGoroutines = min(len(pages.Pages), maxGoroutines)
 		if maxGoroutines == 0 {
 			maxGoroutines = runtime.NumCPU()
 		}
@@ -363,6 +364,7 @@ func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines
 	}
 
 	var durationToFirstMs int64 = -1
+	n := 0
 	for match := range ch {
 		if durationToFirstMs == -1 {
 			durationToFirstMs = time.Since(startTime).Milliseconds()
@@ -373,6 +375,7 @@ func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines
 			continue
 		}
 		// fmt.Println(string(jsonB))
+		n += 1
 
 		select {
 		case _, ok := <-quitChannel:
@@ -388,8 +391,9 @@ func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines
 		pprof.StopCPUProfile()
 	}
 
-	fmt.Printf("first:  % 6d ms\n", durationToFirstMs)
-	fmt.Printf("last:   % 6d ms\n", durationMs)
+	fmt.Printf("results: %d\n", n)
+	fmt.Printf("first:   % 6d ms\n", durationToFirstMs)
+	fmt.Printf("last:    % 6d ms\n", durationMs)
 }
 
 func webServer(config ServerConfig) {
