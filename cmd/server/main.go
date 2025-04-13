@@ -177,11 +177,18 @@ func handleConcord(config ServerConfig, pages pkg.Pages, writer http.ResponseWri
 		}
 	}
 
+	ipList, ok := req.Header["X-Real-Ip"]
+
+	ip := "unknown"
+	if ok && len(ipList) > 0 {
+		ip = ipList[0]
+	}
+
 	durationMs := time.Since(startTime).Milliseconds()
 	if quitEarly {
-		log.Printf("%d result(s) for '%v' in %d ms (timed out)", resultCount, keyword, durationMs)
+		log.Printf("%d result(s) for '%v' in %d ms (timed out; ip: %s)", resultCount, keyword, durationMs, ip)
 	} else {
-		log.Printf("%d result(s) for '%v' in %d ms", resultCount, keyword, durationMs)
+		log.Printf("%d result(s) for '%v' in %d ms (ip: %s)", resultCount, keyword, durationMs, ip)
 	}
 }
 
