@@ -153,13 +153,15 @@ class InputView {
     }
 
     view() {
-        return m("input", { placeholder: "Enter a keyword (try 'vampire')", onkeydown: (e) => this.onkeydown(e) });
+        return m("input", { autocapitalize: "off", placeholder: "Enter a keyword (try 'vampire')", onkeydown: (e) => this.onkeydown(e) });
     }
 
     onkeydown(e) {
         if (e.keyCode === 13) {
             const keyword = e.target.value;
             e.target.value = "";
+            // hides keyboard on mobile
+            e.target.blur();
             this.onEnter(keyword);
         }
     }
