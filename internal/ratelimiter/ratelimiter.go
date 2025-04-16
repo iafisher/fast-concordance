@@ -1,6 +1,7 @@
 package ratelimiter
 
 import (
+	"log"
 	"time"
 )
 
@@ -33,6 +34,7 @@ func (rl *IpRateLimiter) IsOk(ip string, now time.Time) bool {
 
 	record.appendRequest(rl.MaxRequestsInterval, now)
 	if rl.exceedsLimits(record) {
+		log.Printf("rate-limiting ip: %s\n", ip)
 		record.timeOut(now.Add(rl.TimeOutPenalty))
 		return false
 	}
