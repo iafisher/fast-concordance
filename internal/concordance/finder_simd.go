@@ -2,7 +2,7 @@
 
 package concordance
 
-import "github.com/iafisher/fast-concordance/internal/simdtest"
+import "github.com/iafisher/fast-concordance/internal/simdsearch"
 
 type Finder struct {
 	keyword    string
@@ -19,7 +19,7 @@ func (fdr *Finder) Find(page Page, outChannel chan Match, quitChannel chan struc
 
 	offset := 0
 	for {
-		start := simdtest.Search(text, fdr.keyword, offset)
+		start := simdsearch.Search(text, fdr.keyword, offset)
 		if start == -1 {
 			break
 		}

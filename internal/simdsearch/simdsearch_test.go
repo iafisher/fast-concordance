@@ -1,4 +1,4 @@
-package simdtest
+package simdsearch
 
 import (
 	"testing"

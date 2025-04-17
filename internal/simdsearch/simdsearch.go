@@ -1,4 +1,4 @@
-package simdtest
+package simdsearch
 
 // TODO: make this amd64 only
 // TODO: move C code to its own file (but then can I use GoString functions?)
