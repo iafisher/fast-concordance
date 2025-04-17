@@ -126,7 +126,7 @@ func handleConcord(config ServerConfig, pages concordance.Pages, writer http.Res
 	}
 
 	if len(keyword) > MAX_KEYWORD_LENGTH {
-		writeError(writer, fmt.Sprintf("The keyword canont be longer than %d letters.", MAX_KEYWORD_LENGTH))
+		writeError(writer, fmt.Sprintf("The keyword cannot be longer than %d letters.", MAX_KEYWORD_LENGTH))
 		return
 	}
 
