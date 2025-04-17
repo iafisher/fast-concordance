@@ -7,7 +7,7 @@ package simdtest
 // #include <immintrin.h>
 // #include <stdio.h>
 // #include <string.h>
-// 
+//
 // ssize_t simd_str_search(_GoString_ text, _GoString_ keyword, size_t offset) {
 //	size_t text_len = _GoStringLen(text);
 //	size_t keyword_len = _GoStringLen(keyword);
@@ -23,7 +23,7 @@ package simdtest
 // 	}
 // 	__m256i keywordv = _mm256_loadu_si256((__m256i*)keyword_padded);
 // 	__m256i mask = _mm256_loadu_si256((__m256i*)keyword_mask);
-// 
+//
 //	const char* text_p = _GoStringPtr(text);
 // 	for (size_t i = offset; i <= text_len - 32; i++) {
 // 		__m256i textv = _mm256_loadu_si256((__m256i*)(text_p + i));
@@ -33,7 +33,7 @@ package simdtest
 // 			return i;
 // 		}
 // 	}
-// 
+//
 // 	return -1;
 // }
 import "C"

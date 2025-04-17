@@ -1,31 +1,30 @@
-//go:build !(linux && amd64 && cgo)
+//go:build linux && amd64 && cgo
 
 package concordance
 
-import "regexp"
+import "github.com/iafisher/fast-concordance/internal/simdtest"
 
 type Finder struct {
-	rgx *regexp.Regexp
+	keyword    string
+	keywordLen int
 }
 
 func NewFinder(keyword string) Finder {
-	// The '\b' word boundary regex pattern is very slow. So we don't use it here and
-	// instead filter for word boundaries inside `findConcordance`.
-	// TODO: case-insensitive matching - (?i) flag (but it's slow)
-	rgx, err := regexp.Compile(regexp.QuoteMeta(keyword))
-	if err != nil {
-		panic(err)
-	}
-	return Finder{rgx: rgx}
+	return Finder{keyword: keyword, keywordLen: len(keyword)}
 }
 
 func (fdr *Finder) Find(page Page, outChannel chan Match, quitChannel chan struct{}) {
+	// TODO: reduce duplication with non-SIMD implementation
 	text := page.Text
-	indices := fdr.rgx.FindAllStringSubmatchIndex(text, -1)
 
-	for _, pair := range indices {
-		start := pair[0]
-		end := pair[1]
+	offset := 0
+	for {
+		start := simdtest.Search(text, fdr.keyword, offset)
+		if start == -1 {
+			break
+		}
+		offset = start + 1
+		end := start + fdr.keywordLen
 		leftStart := max(0, start-CONTEXT_LENGTH)
 		rightEnd := min(end+CONTEXT_LENGTH, len(text))
 
