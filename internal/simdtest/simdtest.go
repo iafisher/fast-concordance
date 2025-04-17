@@ -8,7 +8,7 @@ package simdtest
 // #include <stdio.h>
 // #include <string.h>
 // 
-// ssize_t simd_str_search(_GoString_ text, _GoString_ keyword) {
+// ssize_t simd_str_search(_GoString_ text, _GoString_ keyword, size_t offset) {
 //	size_t text_len = _GoStringLen(text);
 //	size_t keyword_len = _GoStringLen(keyword);
 // 	if (text_len < 32 || keyword_len > 32) {
@@ -25,7 +25,7 @@ package simdtest
 // 	__m256i mask = _mm256_loadu_si256((__m256i*)keyword_mask);
 // 
 //	const char* text_p = _GoStringPtr(text);
-// 	for (size_t i = 0; i <= text_len - 32; i++) {
+// 	for (size_t i = offset; i <= text_len - 32; i++) {
 // 		__m256i textv = _mm256_loadu_si256((__m256i*)(text_p + i));
 // 		__m256i r1 = _mm256_xor_si256(textv, keywordv);
 // 		__m256i r2 = _mm256_and_si256(r1, mask);
@@ -38,6 +38,6 @@ package simdtest
 // }
 import "C"
 
-func Search(text string, keyword string) int {
-	return int(C.simd_str_search(text, keyword))
+func Search(text string, keyword string, offset int) int {
+	return int(C.simd_str_search(text, keyword, C.size_t(offset)))
 }
