@@ -19,6 +19,7 @@ func main() {
 	takeProfile := flag.Bool("profile", false, "take a pprof profile")
 	maxGoroutines := flag.Int("max-goroutines", -1, "use this many goroutines (-1 for no limit -- the default, 0 for 1 per CPU core)")
 	measureBaseline := flag.Bool("measure-baseline", false, "measure baseline performance")
+	results := flag.Int("results", 0, "show this many results (-1 for all, 0 for none)")
 	flag.Parse()
 
 	if *directory == "" {
@@ -34,7 +35,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		runOneQuery(*query, *directory, *takeProfile, *maxGoroutines)
+		runOneQuery(*query, *directory, *takeProfile, *maxGoroutines, *results)
 	}
 }
 
@@ -114,7 +115,7 @@ func runMeasureBaseline(directory string, maxGoroutines int) {
 	fmt.Printf("duration: %d ms\n", durationMillis)
 }
 
-func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines int) {
+func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines int, results int) {
 	pages, err := concordance.LoadPages(directory)
 	if err != nil {
 		panic(err)
@@ -143,16 +144,21 @@ func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines
 
 	var durationToFirstMs int64 = -1
 	n := 0
+	resultsShown := 0
 	for match := range ch {
 		if durationToFirstMs == -1 {
 			durationToFirstMs = time.Since(startTime).Milliseconds()
 		}
 
-		_, err := json.Marshal(match)
+		jsonB, err := json.Marshal(match)
 		if err != nil {
 			continue
 		}
-		// fmt.Println(string(jsonB))
+
+		if resultsShown < results {
+			fmt.Println(string(jsonB))
+			resultsShown += 1
+		}
 		n += 1
 
 		select {
