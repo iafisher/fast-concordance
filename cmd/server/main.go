@@ -162,7 +162,7 @@ func handleConcord(config ServerConfig, pages concordance.Pages, writer http.Res
 	if config.TimeOutMillis != -1 {
 		go func() {
 			time.Sleep(time.Millisecond * time.Duration(config.TimeOutMillis))
-			quitChannel <- struct{}{}
+			close(quitChannel)
 		}()
 	}
 
@@ -184,8 +184,10 @@ func handleConcord(config ServerConfig, pages concordance.Pages, writer http.Res
 		}
 
 		select {
-		case _ = <-quitChannel:
-			quitEarly = true
+		case _, ok = <-quitChannel:
+			if !ok {
+				quitEarly = true
+			}
 		default:
 			continue
 		}
