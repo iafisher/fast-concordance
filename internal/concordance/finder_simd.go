@@ -4,16 +4,16 @@ package concordance
 
 import "github.com/iafisher/fast-concordance/internal/simdsearch"
 
-type Finder struct {
+type SimdFinder struct {
 	keyword    string
 	keywordLen int
 }
 
-func NewFinder(keyword string) Finder {
-	return Finder{keyword: keyword, keywordLen: len(keyword)}
+func NewSimdFinder(keyword string) SimdFinder {
+	return SimdFinder{keyword: keyword, keywordLen: len(keyword)}
 }
 
-func (fdr *Finder) Find(page Page, outChannel chan Match, quitChannel chan struct{}) {
+func (fdr *SimdFinder) Find(page Page, outChannel chan Match, quitChannel chan struct{}) {
 	// TODO: reduce duplication with non-SIMD implementation
 	text := page.Text
 

@@ -1,5 +1,3 @@
-//go:build !(linux && amd64 && cgo)
-
 package concordance
 
 import "regexp"
