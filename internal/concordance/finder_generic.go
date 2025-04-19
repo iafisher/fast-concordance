@@ -1,6 +1,8 @@
 package concordance
 
-import "regexp"
+import (
+	"regexp"
+)
 
 type Finder struct {
 	rgx *regexp.Regexp
@@ -41,15 +43,12 @@ func (fdr *Finder) Find(page Page, outChannel chan Match, quitChannel chan struc
 			Left:     SliceLeftUtf8(text, start, leftStart),
 			Right:    SliceRightUtf8(text, end, rightEnd),
 		}
-		outChannel <- match
 
 		select {
-		case _, ok := <-quitChannel:
-			if !ok {
-				break
-			}
-		default:
+		case outChannel <- match:
 			continue
+		case <-quitChannel:
+			return
 		}
 	}
 }

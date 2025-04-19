@@ -8,13 +8,15 @@ async function getManifest() {
     if (httpResult.ok) {
         return await httpResult.json();
     } else {
-        throw new Error("failed to fetch manifest")
+        console.error(`Failed to fetch manifest (HTTP ${httpResult.status}).`)
     }
 }
 
 async function search(keyword, resultsOut, statsOut) {
     const startTime = performance.now();
-    const httpResult = await fetch(`./concord?w=${encodeURIComponent(keyword)}`);
+
+    const controller = new AbortController();
+    const httpResult = await fetch(`./concord?w=${encodeURIComponent(keyword)}`, { signal: controller.signal });
     if (!httpResult.ok) {
         if (httpResult.status === 429) {
             throw { error: { message: RATE_LIMITED_ERROR_MESSAGE } };
@@ -24,13 +26,12 @@ async function search(keyword, resultsOut, statsOut) {
         }
     }
 
-    // TODO: Can I close the connection when display limit is hit and cancel request on server?
     const reader = httpResult.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
 
     while (true) {
-        const { done, value } = await reader.read();
+        let { done, value } = await reader.read();
         if (!done) {
             buffer += decoder.decode(value, { stream: true });
         }
@@ -55,7 +56,7 @@ async function search(keyword, resultsOut, statsOut) {
                     } else if (data.status === "ready") {
                         statsOut.queued = false;
                     } else {
-                        console.warn("unknown status message received", data);
+                        console.warn("Unknown status message received from server:", data);
                     }
                 } else {
                     statsOut.queued = false;
@@ -65,6 +66,12 @@ async function search(keyword, resultsOut, statsOut) {
                     }
                 }
             }
+        }
+
+        if (resultsOut.length >= DISPLAY_LIMIT) {
+            console.log(`Number of results exceeded DISPLAY_LIMIT (${DISPLAY_LIMIT}). Aborting request.`)
+            controller.abort();
+            done = true;
         }
 
         if (done) {
@@ -123,6 +130,7 @@ class PageView {
             this.loading = false;
             m.redraw();
         }).catch((e) => {
+            console.error("Error encountered in search().", e);
             this.loading = false;
             if (e.error !== undefined && typeof e.error.message === "string") {
                 this.error = e.error.message;
@@ -200,14 +208,15 @@ class ResultsListView {
         const results = vnode.attrs.results;
         const keyword = vnode.attrs.keyword;
         const manifest = vnode.attrs.manifest;
+        const resultsView = m("div.results", results.slice(0, DISPLAY_LIMIT).map(result => m(ResultView, { result, keyword, manifest })));
         if (results.length > DISPLAY_LIMIT) {
             return [
-                m("div.results", results.slice(0, DISPLAY_LIMIT).map(result => m(ResultView, { result, keyword }))),
+                resultsView,
                 m("hr"),
                 m("div.truncated", `Hit display limit of ${DISPLAY_LIMIT}. Further results truncated.`)
             ];
         } else {
-            return m("div.results", results.map(result => m(ResultView, { result, keyword, manifest })));
+            return resultsView;
         }
     }
 }

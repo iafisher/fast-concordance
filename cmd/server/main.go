@@ -14,8 +14,6 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// TODO: truncate at 10,000 results (same as frontend)
-
 const MIN_KEYWORD_LENGTH = 4
 const MAX_KEYWORD_LENGTH = 30
 
@@ -153,7 +151,10 @@ func handleConcord(config ServerConfig, pages concordance.Pages, writer http.Res
 	quitChannel := make(chan struct{})
 	if config.TimeOutMillis != -1 {
 		go func() {
-			time.Sleep(time.Millisecond * time.Duration(config.TimeOutMillis))
+			select {
+			case <-req.Context().Done():
+			case <-time.After(time.Millisecond * time.Duration(config.TimeOutMillis)):
+			}
 			close(quitChannel)
 		}()
 	}
@@ -176,10 +177,8 @@ func handleConcord(config ServerConfig, pages concordance.Pages, writer http.Res
 		}
 
 		select {
-		case _, ok = <-quitChannel:
-			if !ok {
-				quitEarly = true
-			}
+		case <-quitChannel:
+			quitEarly = true
 		default:
 			continue
 		}
@@ -191,7 +190,7 @@ func handleConcord(config ServerConfig, pages concordance.Pages, writer http.Res
 
 	durationMs := time.Since(startTime).Milliseconds()
 	if quitEarly {
-		log.Printf("%d result(s) for '%v' in %d ms (timed out; ip: %s)", resultCount, keyword, durationMs, ip)
+		log.Printf("%d result(s) for '%v' in %d ms (timed out/cancelled; ip: %s)", resultCount, keyword, durationMs, ip)
 	} else {
 		log.Printf("%d result(s) for '%v' in %d ms (ip: %s)", resultCount, keyword, durationMs, ip)
 	}

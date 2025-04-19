@@ -2,9 +2,11 @@ package concordance
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"runtime"
 	"sync"
+	"time"
 )
 
 type Match struct {
@@ -92,6 +94,8 @@ func LoadPages(directory string, limit int) (Pages, error) {
 }
 
 func StreamSearch(pages Pages, keyword string, quitChannel chan struct{}, maxGoroutines int) (chan Match, error) {
+	startTime := time.Now()
+
 	var wg sync.WaitGroup
 	outChannel := make(chan Match, 1000)
 
@@ -135,6 +139,8 @@ func StreamSearch(pages Pages, keyword string, quitChannel chan struct{}, maxGor
 
 	go func() {
 		wg.Wait()
+		durationMs := time.Since(startTime).Milliseconds()
+		log.Printf("goroutines exited after %d ms", durationMs)
 		close(outChannel)
 	}()
 
