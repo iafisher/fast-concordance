@@ -25,6 +25,7 @@ func main() {
 	timeOutMillis := flag.Int("timeout-ms", 1000, "time out requests after this many milliseconds")
 	port := flag.Int("port", -1, "listen on this port")
 	maxConcurrent := flag.Int("max-concurrent", 4, "maximum requests to allow at once")
+	limitTexts := flag.Int("limit-texts", -1, "load a subset of texts")
 	rateLimitRequests := flag.Int("rate-limit-requests", 10, "with -rate-limit-interval, maximum requests to allow in interval")
 	rateLimitInterval := flag.Duration("rate-limit-interval", time.Second*10, "with -rate-limit-requests, maximum requests to allow in interval")
 	rateLimitPenalty := flag.Duration("rate-limit-penalty", time.Minute, "penalty for rate-limited IPs")
@@ -48,13 +49,14 @@ func main() {
 		Port:          *port,
 		Semaphore:     semaphore.NewWeighted(int64(*maxConcurrent)),
 		RateLimiter:   &rateLimiter,
+		LimitTexts:    *limitTexts,
 	}
 
 	webServer(config)
 }
 
 func webServer(config ServerConfig) {
-	pages, err := concordance.LoadPages(config.Directory)
+	pages, err := concordance.LoadPages(config.Directory, config.LimitTexts)
 	if err != nil {
 		log.Fatalf("could not load pages: %v", err)
 	}
@@ -81,6 +83,7 @@ type ServerConfig struct {
 	Port          int
 	RateLimiter   *ratelimiter.IpRateLimiter
 	Semaphore     *semaphore.Weighted
+	LimitTexts    int
 }
 
 func writeError(writer http.ResponseWriter, message string) {

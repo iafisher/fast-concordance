@@ -50,7 +50,7 @@ func countLetterA(page concordance.Page) int {
 }
 
 func runMeasureBaseline(directory string, maxGoroutines int) {
-	pages, err := concordance.LoadPages(directory)
+	pages, err := concordance.LoadPages(directory, -1)
 	if err != nil {
 		panic(err)
 	}
@@ -116,7 +116,7 @@ func runMeasureBaseline(directory string, maxGoroutines int) {
 }
 
 func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines int, results int) {
-	pages, err := concordance.LoadPages(directory)
+	pages, err := concordance.LoadPages(directory, -1)
 	if err != nil {
 		panic(err)
 	}

@@ -60,7 +60,7 @@ type Page struct {
 	Text     string
 }
 
-func LoadPages(directory string) (Pages, error) {
+func LoadPages(directory string, limit int) (Pages, error) {
 	files, err := os.ReadDir(directory)
 	if err != nil {
 		return Pages{}, err
@@ -68,6 +68,10 @@ func LoadPages(directory string) (Pages, error) {
 
 	pages := []Page{}
 	for _, file := range files {
+		if limit != -1 && len(pages) == limit {
+			break
+		}
+
 		txtPath := fmt.Sprintf("%s/%s/merged.txt", directory, file.Name())
 		if file.IsDir() {
 			data, err := os.ReadFile(txtPath)
