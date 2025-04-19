@@ -59,24 +59,13 @@ func webServer(config ServerConfig) {
 		log.Fatalf("could not load pages: %v", err)
 	}
 
-	// TODO: Prod URLs are rooted at `/concordance` while localhost URLs are rooted
-	// at `/`, so we have to have duplicate entries here.
 	http.HandleFunc("/concord", func(writer http.ResponseWriter, req *http.Request) {
 		handleConcord(config, pages, writer, req)
 	})
-	http.HandleFunc("/concordance/concord", func(writer http.ResponseWriter, req *http.Request) {
-		handleConcord(config, pages, writer, req)
-	})
 	http.HandleFunc("/", handleIndex)
-	// TODO: only serve static assets in dev
 	http.HandleFunc("/static/fast.js", handleJs)
 	http.HandleFunc("/static/fast.css", handleCss)
 	http.HandleFunc("/manifest", func(writer http.ResponseWriter, req *http.Request) {
-		handleManifest(pages, writer, req)
-	})
-	http.HandleFunc("/concordance/static/fast.js", handleJs)
-	http.HandleFunc("/concordance/static/fast.css", handleCss)
-	http.HandleFunc("/concordance/manifest", func(writer http.ResponseWriter, req *http.Request) {
 		handleManifest(pages, writer, req)
 	})
 
