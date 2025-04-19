@@ -88,6 +88,12 @@ class PageView {
         this.stats = { millisToFirstResult: null, millisToLastResult: null, queued: false };
         this.error = null;
         this.loading = false;
+        this.manifest = null;
+
+        getManifest().then(m => {
+            this.manifest = m;
+        });
+        // ignore error: if we can't load manifest we can still load results
     }
 
     view() {
@@ -100,7 +106,7 @@ class PageView {
             m(StatsView, { stats: this.stats, resultsCount: this.results.length }),
             showError ? m(ErrorView, { error: this.error }) : null,
             showQueued ? m(QueuedView) : null,
-            showResults ? m(ResultsListView, { keyword: this.keyword, results: this.results }) : null,
+            showResults ? m(ResultsListView, { keyword: this.keyword, results: this.results, manifest: this.manifest }) : null,
             showLoading ? m(LoadingView) : null,
         ]);
     }
@@ -193,6 +199,7 @@ class ResultsListView {
     view(vnode) {
         const results = vnode.attrs.results;
         const keyword = vnode.attrs.keyword;
+        const manifest = vnode.attrs.manifest;
         if (results.length > DISPLAY_LIMIT) {
             return [
                 m("div.results", results.slice(0, DISPLAY_LIMIT).map(result => m(ResultView, { result, keyword }))),
@@ -200,7 +207,7 @@ class ResultsListView {
                 m("div.truncated", `Hit display limit of ${DISPLAY_LIMIT}. Further results truncated.`)
             ];
         } else {
-            return m("div.results", results.map(result => m(ResultView, { result, keyword })));
+            return m("div.results", results.map(result => m(ResultView, { result, keyword, manifest })));
         }
     }
 }
@@ -209,22 +216,24 @@ class ResultView {
     view(vnode) {
         const result = vnode.attrs.result;
         const keyword = vnode.attrs.keyword;
+        const manifest = vnode.attrs.manifest;
         return [
             m("div.result", [
                 m("div.side.left", [result.left]),
                 m("div.center", [keyword]),
                 m("div.side.right", [result.right]),
             ]),
-            m(SourceView, { result })
+            m(SourceView, { result, manifest })
         ];
     }
 }
 
 class SourceView {
     view(vnode) {
+        const manifest = vnode.attrs.manifest;
         const result = vnode.attrs.result;
-        if (window.ebooksManifest !== null) {
-            const source = window.ebooksManifest[result.filename];
+        if (!!manifest) {
+            const source = manifest[result.filename];
             if (source !== undefined) {
                 return m("div.source", [
                     m.trust(" &ndash; "),
@@ -233,12 +242,9 @@ class SourceView {
                 ]);
             }
         }
+        // fall back to raw filename if manifest failed to load
         return m("div.source", [result.filename]);
     }
 }
 
 m.mount(document.getElementById("mithril"), PageView);
-getManifest().then(m => {
-    window.ebooksManifest = m;
-});
-// TODO: handle error fetching manifest
