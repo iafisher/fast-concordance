@@ -104,7 +104,10 @@ func StreamSearch(pages Pages, keyword string, quitChannel chan struct{}, maxGor
 	var wg sync.WaitGroup
 	outChannel := make(chan Match, 1000)
 
-	finder := NewFinder(keyword)
+	finder, err := NewFinder(keyword)
+	if err != nil {
+		return nil, err
+	}
 
 	if maxGoroutines == -1 {
 		for _, page := range pages.Pages {

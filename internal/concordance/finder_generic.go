@@ -10,15 +10,17 @@ type Finder struct {
 	rgx *regexp.Regexp
 }
 
-func NewFinder(keyword string) Finder {
+func NewFinder(keyword string) (Finder, error) {
 	// The '\b' word boundary regex pattern is very slow. So we don't use it here and
 	// instead filter for word boundaries inside `findConcordance`.
 	// TODO: case-insensitive matching - (?i) flag (but it's slow)
-	rgx, err := regexp.Compile(regexp.QuoteMeta(keyword))
+	pattern := regexp.QuoteMeta(keyword)
+	rgx, err := regexp.Compile(pattern)
 	if err != nil {
-		panic(err)
+		log.Printf("could not compile regex for pattern '%s' (%s)", pattern, err)
+		return Finder{}, err
 	}
-	return Finder{rgx: rgx}
+	return Finder{rgx: rgx}, err
 }
 
 func (fdr *Finder) Find(page Page, outChannel chan Match, quitChannel chan struct{}) {
