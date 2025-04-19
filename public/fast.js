@@ -31,18 +31,12 @@ async function search(keyword, resultsOut, statsOut) {
 
     while (true) {
         const { done, value } = await reader.read();
-        if (done) {
-            statsOut.millisToLastResult = performance.now() - startTime;
-            if (statsOut.millisToFirstResult === null) {
-                // in case we got 0 results
-                statsOut.millisToFirstResult = statsOut.millisToLastResult;
-            }
-            // TODO: does this drop the last result? b/c buffer might not be empty
-            m.redraw();
-            break;
+        if (!done) {
+            buffer += decoder.decode(value, { stream: true });
         }
-        buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
+        // If `buffer` ends with a newline (or is empty), last item of `lines` will be the empty string.
+        // Otherwise, it will have a half-completed line which we put back on the buffer.
         buffer = lines.pop();
         for (const line of lines) {
             const trimmed = line.trim();
@@ -70,9 +64,19 @@ async function search(keyword, resultsOut, statsOut) {
                         statsOut.millisToFirstResult = performance.now() - startTime;
                     }
                 }
-
-                m.redraw();
             }
+        }
+
+        if (done) {
+            statsOut.millisToLastResult = performance.now() - startTime;
+            if (statsOut.millisToFirstResult === null) {
+                // in case we got 0 results
+                statsOut.millisToFirstResult = statsOut.millisToLastResult;
+            }
+            m.redraw();
+            break;
+        } else {
+            m.redraw();
         }
     }
 }
