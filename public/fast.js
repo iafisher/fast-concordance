@@ -4,7 +4,7 @@ const GENERIC_ERROR_MESSAGE = "An error occurred and the request could not be co
 const RATE_LIMITED_ERROR_MESSAGE = "Your IP has made too many requests lately. Please try again later.";
 
 async function getManifest() {
-    const httpResult = await fetch("/concordance/manifest");
+    const httpResult = await fetch("./manifest");
     if (httpResult.ok) {
         return await httpResult.json();
     } else {
@@ -14,7 +14,7 @@ async function getManifest() {
 
 async function search(keyword, resultsOut, statsOut) {
     const startTime = performance.now();
-    const httpResult = await fetch(`/concordance/concord?w=${encodeURIComponent(keyword)}`);
+    const httpResult = await fetch(`./concord?w=${encodeURIComponent(keyword)}`);
     if (!httpResult.ok) {
         if (httpResult.status === 429) {
             throw { error: { message: RATE_LIMITED_ERROR_MESSAGE } };
