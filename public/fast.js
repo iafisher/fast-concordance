@@ -83,10 +83,7 @@ class PageView {
         this.results = [];
         this.stats = { millisToFirstResult: null, millisToLastResult: null, queued: false };
         this.error = null;
-        this.manifest = null;
         this.loading = false;
-
-        getManifest().then(manifest => { this.manifest = manifest });
     }
 
     view() {
@@ -99,7 +96,7 @@ class PageView {
             m(StatsView, { stats: this.stats, resultsCount: this.results.length }),
             showError ? m(ErrorView, { error: this.error }) : null,
             showQueued ? m(QueuedView) : null,
-            showResults ? m(ResultsListView, { keyword: this.keyword, results: this.results, manifest: this.manifest }) : null,
+            showResults ? m(ResultsListView, { keyword: this.keyword, results: this.results }) : null,
             showLoading ? m(LoadingView) : null,
         ]);
     }
@@ -192,7 +189,6 @@ class ResultsListView {
     view(vnode) {
         const results = vnode.attrs.results;
         const keyword = vnode.attrs.keyword;
-        const manifest = vnode.attrs.manifest;
         if (results.length > DISPLAY_LIMIT) {
             return [
                 m("div.results", results.slice(0, DISPLAY_LIMIT).map(result => m(ResultView, { result, keyword }))),
