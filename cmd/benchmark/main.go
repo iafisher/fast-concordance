@@ -15,6 +15,7 @@ import (
 
 func main() {
 	directory := flag.String("directory", "", "serve this directory of ebook files")
+	fromDisk := flag.Bool("from-disk", false, "read corpus from disk each time instead of memory")
 	query := flag.String("query", "", "keyword to query")
 	takeProfile := flag.Bool("profile", false, "take a pprof profile")
 	maxGoroutines := flag.Int("max-goroutines", -1, "use this many goroutines (-1 for no limit -- the default, 0 for 1 per CPU core)")
@@ -35,7 +36,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		runOneQuery(*query, *directory, *takeProfile, *maxGoroutines, *results)
+		runOneQuery(*query, *directory, *takeProfile, *maxGoroutines, *results, *fromDisk)
 	}
 }
 
@@ -50,7 +51,7 @@ func countLetterA(page concordance.Page) int {
 }
 
 func runMeasureBaseline(directory string, maxGoroutines int) {
-	pages, err := concordance.LoadPages(directory, -1)
+	pages, err := concordance.LoadPages(directory, false, -1)
 	if err != nil {
 		panic(err)
 	}
@@ -115,8 +116,8 @@ func runMeasureBaseline(directory string, maxGoroutines int) {
 	fmt.Printf("duration: %d ms\n", durationMillis)
 }
 
-func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines int, results int) {
-	pages, err := concordance.LoadPages(directory, -1)
+func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines int, results int, fromDisk bool) {
+	pages, err := concordance.LoadPages(directory, fromDisk, -1)
 	if err != nil {
 		panic(err)
 	}

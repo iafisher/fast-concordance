@@ -59,10 +59,11 @@ type Pages struct {
 
 type Page struct {
 	FileName string
+	FilePath string
 	Text     string
 }
 
-func LoadPages(directory string, limit int) (Pages, error) {
+func LoadPages(directory string, fileNamesOnly bool, limit int) (Pages, error) {
 	files, err := os.ReadDir(directory)
 	if err != nil {
 		return Pages{}, err
@@ -76,12 +77,16 @@ func LoadPages(directory string, limit int) (Pages, error) {
 
 		txtPath := fmt.Sprintf("%s/%s/merged.txt", directory, file.Name())
 		if file.IsDir() {
-			data, err := os.ReadFile(txtPath)
-			if err != nil {
-				continue
+			data := []byte{}
+			if !fileNamesOnly {
+				data, err = os.ReadFile(txtPath)
+				if err != nil {
+					log.Printf("failed to load file: %s (%s)", txtPath, err)
+					continue
+				}
 			}
 
-			pages = append(pages, Page{FileName: file.Name(), Text: string(data)})
+			pages = append(pages, Page{FileName: file.Name(), FilePath: txtPath, Text: string(data)})
 		}
 	}
 

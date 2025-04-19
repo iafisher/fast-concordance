@@ -1,6 +1,8 @@
 package concordance
 
 import (
+	"log"
+	"os"
 	"regexp"
 )
 
@@ -20,7 +22,18 @@ func NewFinder(keyword string) Finder {
 }
 
 func (fdr *Finder) Find(page Page, outChannel chan Match, quitChannel chan struct{}) {
-	text := page.Text
+	var text string
+	if len(page.Text) == 0 {
+		bytes, err := os.ReadFile(page.FilePath)
+		if err != nil {
+			log.Printf("failed to read file: %s (%s)", page.FilePath, err)
+			return
+		}
+		text = string(bytes)
+	} else {
+		text = page.Text
+	}
+
 	indices := fdr.rgx.FindAllStringSubmatchIndex(text, -1)
 
 	for _, pair := range indices {

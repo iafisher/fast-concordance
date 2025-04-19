@@ -54,7 +54,7 @@ func main() {
 }
 
 func webServer(config ServerConfig) {
-	pages, err := concordance.LoadPages(config.Directory, config.LimitTexts)
+	pages, err := concordance.LoadPages(config.Directory, false, config.LimitTexts)
 	if err != nil {
 		log.Fatalf("could not load pages: %v", err)
 	}
