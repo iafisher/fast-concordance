@@ -1,6 +1,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <immintrin.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -109,6 +110,13 @@ int is_letter(char c) {
     return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z');
 }
 
+struct thread_context {
+    str_search_t search_f;
+    struct corpus corpus;
+    size_t start, end;
+    const char* keyword;
+};
+
 int search_one(str_search_t search_f, struct text text, const char* keyword, int print_matches) {
     int count = 0;
     size_t offset = 0;
@@ -143,6 +151,20 @@ int search_one(str_search_t search_f, struct text text, const char* keyword, int
     return count;
 }
 
+void* search_thread(void* arg) {
+    struct thread_context* ctx = (struct thread_context*)arg;
+    int count = 0;
+
+    for (size_t i = ctx->start; i < ctx->end; i++) {
+        count += search_one(ctx->search_f, ctx->corpus.texts[i], ctx->keyword, 0);
+    }
+
+    int* r = malloc(sizeof *r);
+    if (r == NULL) { bail("malloc failed"); }
+    *r = count;
+    return r;
+}
+
 ssize_t regular_str_search(const char* text, const char* keyword, size_t offset) {
     const char* p = strstr(text + offset, keyword);
     if (p == NULL) {
@@ -150,6 +172,20 @@ ssize_t regular_str_search(const char* text, const char* keyword, size_t offset)
     } else {
         return (p - text);
     }
+}
+
+ssize_t stupid_str_search(const char* text, const char* keyword, size_t offset) {
+    for (size_t i = offset; text[i] != '\0'; i++) {
+        size_t j = 0;
+        for (; text[i + j] != '\0' && keyword[j] != '\0' && text[i + j] == keyword[j]; j++) {
+        }
+
+        if (keyword[j] == '\0') {
+            return i;
+        }
+    }
+
+    return -1;
 }
 
 ssize_t simd_str_search(const char* text, const char* keyword, size_t offset) {
@@ -194,7 +230,9 @@ void usage() {
 
 int main(int argc, char* argv[]) {
     int use_simd = 0;
+    int use_stupid = 0;
     int print_matches = 0;
+    int parallel;
     char* keyword = NULL;
     char* directory = NULL;
 
@@ -205,6 +243,12 @@ int main(int argc, char* argv[]) {
             i++;
         } else if (strcmp(argv[i], "-print") == 0) {
             print_matches = 1;
+            i++;
+        } else if (strcmp(argv[i], "-parallel") == 0) {
+            parallel = 1;
+            i++;
+        } else if (strcmp(argv[i], "-stupid") == 0) {
+            use_stupid = 1;
             i++;
         } else if (strcmp(argv[i], "-keyword") == 0) {
             if (i + 1 >= argc) {
@@ -228,12 +272,32 @@ int main(int argc, char* argv[]) {
     }
 
     struct corpus corpus = load_all_texts(directory);
-    str_search_t search_f = use_simd ? simd_str_search : regular_str_search;
+    str_search_t search_f = use_stupid ? stupid_str_search : (use_simd ? simd_str_search : regular_str_search);
 
     clock_t start = clock();
     int count = 0;
-    for (size_t i = 0; i < corpus.length; i++) {
-        count += search_one(search_f, corpus.texts[i], keyword, print_matches);
+    if (parallel) {
+        pthread_t thrd1, thrd2;
+        size_t midpoint = corpus.length / 2;
+        struct thread_context ctx1 = { .search_f = search_f, .corpus = corpus, .start = 0, .end = midpoint, .keyword = keyword };
+        struct thread_context ctx2 = { .search_f = search_f, .corpus = corpus, .start = midpoint, .end = corpus.length, .keyword = keyword };
+        int r = pthread_create(&thrd1, NULL, search_thread, &ctx1);
+        if (r < 0) { bail("pthread_create failed"); }
+        r = pthread_create(&thrd2, NULL, search_thread, &ctx2);
+        if (r < 0) { bail("pthread_create failed"); }
+
+        void* retval;
+        r = pthread_join(thrd1, &retval);
+        if (r < 0) { bail("pthread_join failed"); }
+        count += *(int*)retval;
+
+        r = pthread_join(thrd2, &retval);
+        if (r < 0) { bail("pthread_join failed"); }
+        count += *(int*)retval;
+    } else {
+        for (size_t i = 0; i < corpus.length; i++) {
+            count += search_one(search_f, corpus.texts[i], keyword, print_matches);
+        }
     }
     clock_t end = clock();
     float duration_ms = (float)(end - start) / CLOCKS_PER_SEC * 1000;
