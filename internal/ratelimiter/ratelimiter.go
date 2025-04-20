@@ -2,6 +2,7 @@ package ratelimiter
 
 import (
 	"log"
+	"sync"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type IpRateLimiter struct {
 	MaxRequestsInterval time.Duration
 	TimeOutPenalty      time.Duration
 	records             map[string]*IpRateLimiterRecord
+	mu                  sync.Mutex
 }
 
 func NewRateLimiter(maxRequests int, maxRequestsInterval time.Duration, timeOutPenalty time.Duration) IpRateLimiter {
@@ -27,6 +29,9 @@ func NewRateLimiter(maxRequests int, maxRequestsInterval time.Duration, timeOutP
 }
 
 func (rl *IpRateLimiter) IsOk(ip string, now time.Time) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
 	record := rl.getOrCreateRecord(ip)
 	if record.inPenaltyBox(now) {
 		return false
