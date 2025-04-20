@@ -20,13 +20,17 @@ const MAX_KEYWORD_LENGTH = 30
 func main() {
 	directory := flag.String("directory", "", "serve this directory of ebook files")
 	slow := flag.Bool("slow", false, "run the webserver in slow mode")
-	timeOutMillis := flag.Int("timeout-ms", 1000, "time out requests after this many milliseconds")
 	port := flag.Int("port", -1, "listen on this port")
 	maxConcurrent := flag.Int("max-concurrent", 4, "maximum requests to allow at once")
 	limitTexts := flag.Int("limit-texts", -1, "load a subset of texts")
 	rateLimitRequests := flag.Int("rate-limit-requests", 10, "with -rate-limit-interval, maximum requests to allow in interval")
 	rateLimitInterval := flag.Duration("rate-limit-interval", time.Second*10, "with -rate-limit-requests, maximum requests to allow in interval")
 	rateLimitPenalty := flag.Duration("rate-limit-penalty", time.Minute, "penalty for rate-limited IPs")
+	timeOutQuery := flag.Duration("timeout-query", time.Second, "time-out for concordance queries")
+	timeOutReadHeader := flag.Duration("timeout-read-header", time.Second*10, "time-out for HTTP headers")
+	timeOutRead := flag.Duration("timeout-read", time.Second*10, "time-out for reading HTTP request")
+	timeOutWrite := flag.Duration("timeout-write", time.Minute, "time-out for writing HTTP response (all endpoints)")
+	timeOutIdle := flag.Duration("timeout-idle", 2*time.Minute, "time-out for idle connections")
 	flag.Parse()
 
 	if *directory == "" {
@@ -41,13 +45,17 @@ func main() {
 
 	rateLimiter := ratelimiter.NewRateLimiter(*rateLimitRequests, *rateLimitInterval, *rateLimitPenalty)
 	config := ServerConfig{
-		Directory:     *directory,
-		SlowMode:      *slow,
-		TimeOutMillis: *timeOutMillis,
-		Port:          *port,
-		Semaphore:     semaphore.NewWeighted(int64(*maxConcurrent)),
-		RateLimiter:   &rateLimiter,
-		LimitTexts:    *limitTexts,
+		Directory:         *directory,
+		SlowMode:          *slow,
+		TimeOutQuery:      *timeOutQuery,
+		TimeOutReadHeader: *timeOutReadHeader,
+		TimeOutRead:       *timeOutRead,
+		TimeOutWrite:      *timeOutWrite,
+		TimeOutIdle:       *timeOutIdle,
+		Port:              *port,
+		Semaphore:         semaphore.NewWeighted(int64(*maxConcurrent)),
+		RateLimiter:       &rateLimiter,
+		LimitTexts:        *limitTexts,
 	}
 
 	webServer(config)
@@ -59,29 +67,44 @@ func webServer(config ServerConfig) {
 		log.Fatalf("could not load pages: %v", err)
 	}
 
-	http.HandleFunc("/concord", func(writer http.ResponseWriter, req *http.Request) {
+	handler := &http.ServeMux{}
+
+	handler.HandleFunc("/concord", func(writer http.ResponseWriter, req *http.Request) {
 		handleConcord(config, pages, writer, req)
 	})
-	http.HandleFunc("/", handleIndex)
-	http.HandleFunc("/static/fast.js", handleJs)
-	http.HandleFunc("/static/fast.css", handleCss)
-	http.HandleFunc("/manifest", func(writer http.ResponseWriter, req *http.Request) {
+	handler.HandleFunc("/", handleIndex)
+	handler.HandleFunc("/static/fast.js", handleJs)
+	handler.HandleFunc("/static/fast.css", handleCss)
+	handler.HandleFunc("/manifest", func(writer http.ResponseWriter, req *http.Request) {
 		handleManifest(pages, writer, req)
 	})
 
 	addr := fmt.Sprintf(":%d", config.Port)
+	server := &http.Server{
+		ReadHeaderTimeout: config.TimeOutReadHeader,
+		ReadTimeout:       config.TimeOutRead,
+		WriteTimeout:      config.TimeOutWrite,
+		IdleTimeout:       config.TimeOutIdle,
+		Addr:              addr,
+		Handler:           handler,
+	}
+
 	log.Printf("listening on %s", addr)
-	log.Fatal("server failed", http.ListenAndServe(addr, nil))
+	log.Fatal("server failed", server.ListenAndServe())
 }
 
 type ServerConfig struct {
-	Directory     string
-	SlowMode      bool
-	TimeOutMillis int
-	Port          int
-	RateLimiter   *ratelimiter.IpRateLimiter
-	Semaphore     *semaphore.Weighted
-	LimitTexts    int
+	Directory         string
+	SlowMode          bool
+	TimeOutQuery      time.Duration
+	TimeOutReadHeader time.Duration
+	TimeOutRead       time.Duration
+	TimeOutWrite      time.Duration
+	TimeOutIdle       time.Duration
+	Port              int
+	RateLimiter       *ratelimiter.IpRateLimiter
+	Semaphore         *semaphore.Weighted
+	LimitTexts        int
 }
 
 func writeError(writer http.ResponseWriter, message string) {
@@ -149,15 +172,13 @@ func handleConcord(config ServerConfig, pages concordance.Pages, writer http.Res
 	}
 
 	quitChannel := make(chan struct{})
-	if config.TimeOutMillis != -1 {
-		go func() {
-			select {
-			case <-req.Context().Done():
-			case <-time.After(time.Millisecond * time.Duration(config.TimeOutMillis)):
-			}
-			close(quitChannel)
-		}()
-	}
+	go func() {
+		select {
+		case <-req.Context().Done():
+		case <-time.After(config.TimeOutQuery):
+		}
+		close(quitChannel)
+	}()
 
 	ch, err := concordance.StreamSearch(pages, keyword, quitChannel, -1)
 	if err != nil {
