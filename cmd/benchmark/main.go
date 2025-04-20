@@ -123,11 +123,6 @@ func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines
 	}
 
 	startTime := time.Now()
-	quitChannel := make(chan struct{})
-	go func() {
-		time.Sleep(time.Millisecond * time.Duration(1000))
-		close(quitChannel)
-	}()
 
 	if takeProfile {
 		profFile, err := os.Create("fast.perf")
@@ -138,6 +133,7 @@ func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines
 		pprof.StartCPUProfile(profFile)
 	}
 
+	quitChannel := make(chan struct{})
 	ch, err := concordance.StreamSearch(pages, query, quitChannel, maxGoroutines)
 	if err != nil {
 		panic(err)
@@ -161,15 +157,6 @@ func runOneQuery(query string, directory string, takeProfile bool, maxGoroutines
 			resultsShown += 1
 		}
 		n += 1
-
-		select {
-		case _, ok := <-quitChannel:
-			if !ok {
-				break
-			}
-		default:
-			continue
-		}
 	}
 	durationMs := time.Since(startTime).Milliseconds()
 	if takeProfile {
