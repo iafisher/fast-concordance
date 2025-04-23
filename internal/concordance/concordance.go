@@ -118,30 +118,30 @@ func StreamSearch(pages Pages, keyword string, quitChannel chan struct{}, maxGor
 			}(page)
 		}
 	} else {
+		workChannel := make(chan Page, len(pages.Pages))
+
 		maxGoroutines = min(len(pages.Pages), maxGoroutines)
 		if maxGoroutines == 0 {
 			maxGoroutines = runtime.NumCPU()
 		}
 
-		rangeLen := len(pages.Pages) / maxGoroutines
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, page := range pages.Pages {
+				workChannel <- page
+			}
+			close(workChannel)
+		}()
 
-		for i := range maxGoroutines {
+		for i := 0; i < maxGoroutines; i++ {
 			wg.Add(1)
-			go func(i int) {
+			go func() {
 				defer wg.Done()
-
-				start := i * rangeLen
-				var end int
-				if i == maxGoroutines-1 {
-					end = len(pages.Pages)
-				} else {
-					end = start + rangeLen
-				}
-
-				for _, page := range pages.Pages[start:end] {
+				for page := range workChannel {
 					finder.Find(page, outChannel, quitChannel)
 				}
-			}(i)
+			}()
 		}
 	}
 

@@ -180,7 +180,7 @@ func handleConcord(config ServerConfig, pages concordance.Pages, writer http.Res
 		close(quitChannel)
 	}()
 
-	ch, err := concordance.StreamSearch(pages, keyword, quitChannel, -1)
+	ch, err := concordance.StreamSearch(pages, keyword, quitChannel, 0)
 	if err != nil {
 		writer.WriteHeader(http.StatusInternalServerError)
 		return
